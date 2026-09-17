@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "agrosuite": {
+      "command": "C:/Users/gsiebertfilho/GIT/Ag Software/AgroSuite/.venv/Scripts/python.exe",
+      "args": [
+        "-m",
+        "agrosuite.mcp_server"
+      ],
+      "cwd": "C:/Users/gsiebertfilho/GIT/Ag Software/AgroSuite"
+    }
+  }
+}

@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 250" width="900" height="250" role="img" aria-label="AgroSuite: two tracks. Plan a trial — a field boundary, the strip layout and AB lines, the package for the monitor. Evaluate a trial — as-applied and yield maps, cleaning, the economic analysis, the verified export back to the monitor. Each step can be the last one.">
+  <style>
+    .box { fill: #ffffff; stroke: #bcc5bc; stroke-width: 1.5; }
+    .accent { fill: #e3f0e8; stroke: #2f7d4f; }
+    .t { font: 600 13px system-ui, sans-serif; fill: #1b241b; }
+    .s { font: 11px system-ui, sans-serif; fill: #5d6a5d; }
+    .n { font: 700 11px system-ui, sans-serif; fill: #2f7d4f; }
+    .arrow { stroke: #8a958a; stroke-width: 1.5; fill: none; marker-end: url(#a); }
+    @media (prefers-color-scheme: dark) {
+      .box { fill: #1a1f17; stroke: #414c3d; }
+      .accent { fill: #1e3227; stroke: #6cc38c; }
+      .t { fill: #e6ebe4; } .s { fill: #a3afa0; } .n { fill: #6cc38c; }
+      .arrow { stroke: #75806f; }
+    }
+  </style>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8a958a"/>
+    </marker>
+  </defs>
+
+  <!-- Track A: plan a trial, before the season -->
+  <text class="n" x="8" y="22">PLAN A TRIAL · before the season</text>
+
+  <rect class="box accent" x="8" y="32" width="170" height="64" rx="8"/>
+  <text class="t" x="20" y="56">Field</text>
+  <text class="s" x="20" y="73">boundary · any layer</text>
+  <text class="s" x="20" y="86">or drawn on the map</text>
+
+  <rect class="box" x="206" y="32" width="180" height="64" rx="8"/>
+  <text class="t" x="218" y="56">Trial design</text>
+  <text class="s" x="218" y="73">randomized strips</text>
+  <text class="s" x="218" y="86">AB line along them</text>
+
+  <rect class="box accent" x="414" y="32" width="200" height="64" rx="8"/>
+  <text class="t" x="426" y="56">To the monitor</text>
+  <text class="s" x="426" y="73">package per platform</text>
+  <text class="s" x="426" y="86">checked before it leaves</text>
+
+  <path class="arrow" d="M182,64 L202,64"/>
+  <path class="arrow" d="M390,64 L410,64"/>
+
+  <text class="s" x="642" y="58">Nothing here needs a yield</text>
+  <text class="s" x="642" y="73">map, prices or cleaning.</text>
+
+  <!-- Track B: evaluate a trial, after harvest -->
+  <text class="n" x="8" y="142">EVALUATE A TRIAL · after harvest</text>
+
+  <rect class="box accent" x="8" y="152" width="170" height="64" rx="8"/>
+  <text class="t" x="20" y="176">Monitor data</text>
+  <text class="s" x="20" y="193">as-applied · yield map</text>
+  <text class="s" x="20" y="206">SHP · CSV · ISOXML · card</text>
+
+  <rect class="box" x="206" y="152" width="150" height="64" rx="8"/>
+  <text class="t" x="218" y="176">Cleaning</text>
+  <text class="s" x="218" y="193">13 filters</text>
+  <text class="s" x="218" y="206">before/after report</text>
+
+  <rect class="box" x="384" y="152" width="180" height="64" rx="8"/>
+  <text class="t" x="396" y="176">Economics</text>
+  <text class="s" x="396" y="193">yield response curve</text>
+  <text class="s" x="396" y="206">optimum rate · zones</text>
+
+  <rect class="box accent" x="592" y="152" width="200" height="64" rx="8"/>
+  <text class="t" x="604" y="176">Back to the monitor</text>
+  <text class="s" x="604" y="193">prescription · report</text>
+  <text class="s" x="604" y="206">checked before it leaves</text>
+
+  <path class="arrow" d="M182,184 L202,184"/>
+  <path class="arrow" d="M360,184 L380,184"/>
+  <path class="arrow" d="M568,184 L588,184"/>
+  <!-- Cleaning can be passed over: a file that is already clean goes straight
+       to the economics. -->
+  <path class="arrow" d="M182,152 C 300,110 340,120 460,148" stroke-dasharray="4 3"/>
+
+  <text class="s" x="8" y="240">Every step can be the last one: reading a file, cleaning it, laying a trial out. Everything runs on your machine, in the units you chose.</text>
+</svg>

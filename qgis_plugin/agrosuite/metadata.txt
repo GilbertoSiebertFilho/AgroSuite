@@ -1,0 +1,14 @@
+[general]
+name=AgroSuite
+qgisMinimumVersion=3.16
+description=Send layers to AgroSuite and pull results back
+about=Connects QGIS to AgroSuite running on this machine. Send the active layer across for cleaning or analysis, and bring results back as QGIS layers. Requires AgroSuite to be running (the app opens a local server on port 8765).
+version=1.0.0
+author=AgroSuite
+email=noreply@example.com
+tracker=https://github.com/GilbertoSiebertFilho/SMS_PDF_2026/issues
+repository=https://github.com/GilbertoSiebertFilho/SMS_PDF_2026
+category=Vector
+icon=icon.svg
+experimental=False
+deprecated=False

@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgroSuite</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌾</text></svg>">
+<link rel="stylesheet" href="/static/vendor/leaflet.css">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div id="app">
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="mark">🌾</span>
+      <span>AgroSuite</span>
+      <span class="sub">monitor data · cleaning · economics</span>
+    </div>
+
+    <!-- Two tracks share these tabs: plan a trial (Data, Terrain, Trial
+         design, Export) and evaluate one (Data, Terrain, Cleaning,
+         Economics, Export). They carry no numbers, because no order is
+         required: every tab is clickable at any time and says in its own
+         panel what it still needs. Terrain sits next to Data because it
+         reads the altitude the file already carries, and both tracks use
+         what it finds — the relief decides where the strips go as much as
+         it explains a yield map. -->
+    <nav class="steps" id="steps" role="tablist">
+      <button data-tab="dados"    role="tab" aria-selected="true">Data</button>
+      <button data-tab="terrain"  role="tab" aria-selected="false">Terrain</button>
+      <button data-tab="ensaio"   role="tab" aria-selected="false">Trial design</button>
+      <button data-tab="limpeza"  role="tab" aria-selected="false">Cleaning</button>
+      <button data-tab="difm"     role="tab" aria-selected="false">Economics</button>
+      <button data-tab="exportar" role="tab" aria-selected="false">Export</button>
+    </nav>
+
+    <div class="spacer"></div>
+
+    <div class="inline">
+      <label class="inline" style="font-size:12px;color:var(--text-muted)">
+        Units
+        <select id="unit-preset" style="width:auto;min-width:150px"></select>
+      </label>
+      <button class="ghost small" id="unit-details" title="Adjust each unit">⚙</button>
+      <button class="ghost small" id="theme-toggle" title="Toggle theme">◐</button>
+    </div>
+  </header>
+
+  <div class="stage-strip" id="stage-strip" hidden></div>
+
+  <div class="workspace">
+
+    <!-- ------------------------------------------------ coluna esquerda -->
+    <aside class="left">
+      <div class="panel">
+        <h3>Load data</h3>
+        <button class="primary wide" id="btn-open-file" style="margin-bottom:6px">
+          Open a file from this computer
+        </button>
+        <button class="wide" id="btn-open-folder" style="margin-bottom:6px"
+                title="Send a whole folder — a shapefile with its parts, a TASKDATA folder, a card">
+          Open a folder
+        </button>
+        <button class="wide" id="btn-open-path" style="margin-bottom:6px">
+          Open by path / folder
+        </button>
+        <div class="row tight">
+          <button class="small" id="btn-demo-harvest">Harvest demo</button>
+          <button class="small" id="btn-demo-trial">Trial demo</button>
+          <button class="small" id="btn-demo-terrain"
+                  title="A synthetic field of known relief: two hills, a valley and a closed hollow">
+            Terrain demo</button>
+        </div>
+        <p class="hint tight">
+          A shapefile or an ISOXML folder needs all of its files together: drop
+          the folder anywhere on this window, use "Open a folder", or select the
+          .shp with its .shx, .dbf and .prj at once. "By path" reads straight
+          from this computer's disk instead of uploading.
+        </p>
+        <!-- What the last drop left out, and why: a file skipped without a
+             word would be looked for on the map for a long time. -->
+        <div id="drop-report"></div>
+
+        <!-- The whole session in one file: datasets, cleaning results, roles
+             and prices. The recent list comes from the server. -->
+        <h4>Project file</h4>
+        <div class="row tight" style="margin-bottom:6px">
+          <button class="small" id="btn-project-save">Save project</button>
+          <button class="small" id="btn-project-open">Open project</button>
+        </div>
+        <button class="ghost small wide" id="btn-project-new"
+                title="Close every dataset and start again">New project</button>
+        <!-- The app also saves the project by itself, into a folder chosen
+             once. This is all it says about that while it works: where the
+             folder is, whether it is on, and one line for the last write.
+             No dialog — it is background work and should read as some. -->
+        <div class="autosave" id="autosave">
+          <label class="inline" title="Write this project to the projects folder as you work">
+            <input type="checkbox" id="autosave-toggle"> Save automatically
+          </label>
+          <div class="folder">
+            <span class="path" id="autosave-folder"></span>
+            <button class="ghost small" id="btn-projects-folder"
+                    title="Choose where projects are kept">Change folder…</button>
+          </div>
+          <div class="status" id="autosave-status"></div>
+        </div>
+        <div id="project-file"></div>
+        <div id="recent-projects"></div>
+      </div>
+
+      <div class="panel">
+        <h3>Project</h3>
+        <div id="project-panel"></div>
+      </div>
+
+      <div class="panel" style="flex:1">
+        <h3>Loaded data</h3>
+        <div id="dataset-list"><div class="empty">Nothing loaded yet.</div></div>
+      </div>
+    </aside>
+
+    <!-- --------------------------------------------------- centre (map) -->
+    <main class="center">
+      <div class="map-toolbar">
+        <label class="inline">
+          Colour by
+          <select id="color-column" style="width:auto;min-width:160px"></select>
+        </label>
+        <label class="inline">
+          <input type="checkbox" id="show-basemap" checked> Satellite
+        </label>
+        <span class="spacer" style="flex:1"></span>
+        <span id="map-status" class="hint tight" style="margin:0"></span>
+        <button class="ghost small" id="btn-fit">Zoom to fit</button>
+      </div>
+      <!-- One pane normally; the cleaning tab adds a second one beside it to
+           show the field before and after. -->
+      <div class="map-panes" id="map-panes">
+        <div class="map-pane" id="map-pane">
+          <div id="map" class="map"></div>
+          <canvas id="point-canvas" class="point-canvas"></canvas>
+        </div>
+      </div>
+      <div class="map-overlay legend" id="legend" hidden>
+        <h4 id="legend-title">Value</h4>
+        <div class="ramp" id="legend-ramp"></div>
+        <div class="ends"><span id="legend-min">—</span><span id="legend-max">—</span></div>
+      </div>
+    </main>
+
+    <!-- ------------------------------------------------- coluna direita -->
+    <aside class="right" id="right-panel"></aside>
+  </div>
+</div>
+
+<!-- ------------------------------------------------------------ dialogs -->
+
+<dialog id="dlg-path">
+  <div class="head">
+    <h3 id="dlg-path-title">Open by path</h3>
+    <button class="ghost" data-close>✕</button>
+  </div>
+  <div class="body">
+    <label class="field">
+      <span>Path to the file or folder</span>
+      <input type="text" id="path-input" placeholder="C:\Data\Harvest\NW-14-32-W2.shp">
+    </label>
+    <div class="row tight" style="margin-bottom:10px">
+      <button id="btn-path-up">↑ Parent folder</button>
+      <button id="btn-path-list">List folder</button>
+    </div>
+    <div id="path-current" class="hint tight"></div>
+    <div class="file-list" id="path-browser"></div>
+  </div>
+  <div class="foot">
+    <button data-close>Cancel</button>
+    <button class="primary" id="btn-path-open">Open</button>
+  </div>
+</dialog>
+
+<dialog id="dlg-save-project">
+  <div class="head">
+    <h3>Save project</h3>
+    <button class="ghost" data-close>✕</button>
+  </div>
+  <div class="body">
+    <p class="hint">
+      A project file (.agrosuite) holds the whole session — every dataset with
+      its cleaning results, roles and prices — and "Open project" brings it back
+      in one step.
+    </p>
+    <label class="field">
+      <span>Project name</span>
+      <input type="text" id="save-name" placeholder="e.g. NW 14-32 canola 2026">
+    </label>
+    <label class="field">
+      <span>Save to (optional)</span>
+      <input type="text" id="save-path" placeholder="A folder, or a file path ending in .agrosuite">
+    </label>
+    <p class="hint tight">
+      A full path, from the drive or the root. Ending in .agrosuite it is the file;
+      anything else is a folder — created if it is not there yet — holding a file
+      named after the project. Left empty, the file is written to the session
+      folder, which goes when the app closes — keep it through the download link
+      that follows.
+    </p>
+  </div>
+  <div class="foot">
+    <button data-close>Cancel</button>
+    <button class="primary" id="btn-save-project-confirm">Save</button>
+  </div>
+</dialog>
+
+<dialog id="dlg-units">
+  <div class="head">
+    <h3>Display units</h3>
+    <button class="ghost" data-close>✕</button>
+  </div>
+  <div class="body" id="units-body"></div>
+  <div class="foot">
+    <button data-close>Close</button>
+  </div>
+</dialog>
+
+<dialog id="dlg-import-units">
+  <div class="head">
+    <h3>Units in the source file</h3>
+    <button class="ghost" data-close>✕</button>
+  </div>
+  <div class="body">
+    <p class="hint">
+      Which unit did the monitor write this file in? If you are not sure, leave it
+      as it is and check the statistics afterwards — an average yield of 55 on a
+      canola map is bu/ac, not kg/ha.
+    </p>
+    <div id="import-units-body"></div>
+  </div>
+  <div class="foot">
+    <button data-close>Cancel</button>
+    <button class="primary" id="btn-import-units-apply">Apply conversion</button>
+  </div>
+</dialog>
+
+<dialog id="dlg-machine">
+  <div class="head">
+    <h3>Save as a machine</h3>
+    <button class="ghost" data-close>✕</button>
+  </div>
+  <div class="body">
+    <p class="hint">
+      A header width, a flow delay and a working speed belong to the machine,
+      not to the field. Saved once, they fill the Cleaning, Trial design and
+      Export tabs with one pick.
+    </p>
+    <div id="machine-body"></div>
+  </div>
+  <div class="foot">
+    <button id="btn-machine-suggest" title="Read the width, speed and monitor off the selected dataset">
+      Suggest from this file
+    </button>
+    <button data-close>Cancel</button>
+    <button class="primary" id="btn-machine-save">Save</button>
+  </div>
+</dialog>
+
+<!-- "multiple" lets a shapefile's four files be picked together; the second
+     input asks the browser for a whole folder, tree included. -->
+<input type="file" id="file-input" multiple hidden>
+<input type="file" id="folder-input" webkitdirectory hidden>
+<div id="toasts"></div>
+
+<script src="/static/vendor/leaflet.js"></script>
+<script src="/static/units.js"></script>
+<script src="/static/charts.js"></script>
+<script src="/static/mapview.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

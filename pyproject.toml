@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agrosuite"
+version = "1.0.0"
+description = "Agricultural monitor data: import, cleaning, trial design, economics and prescriptions"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+
+dependencies = [
+    "numpy>=1.26",
+    "pandas>=2.1",
+    "scipy>=1.11",
+    "geopandas>=1.0",
+    "shapely>=2.0",
+    "pyproj>=3.6",
+    "pyogrio>=0.9",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "python-multipart>=0.0.9",
+    "jinja2>=3.1",
+    "openpyxl>=3.1",
+    "pyarrow>=14",
+    "reportlab>=4.0",
+    "rasterio>=1.3",
+    "scikit-image>=0.22",
+]
+
+[project.scripts]
+agrosuite = "agrosuite.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["agrosuite*"]
+
+[tool.setuptools.package-data]
+agrosuite = ["app/static/*", "app/static/vendor/*"]
