@@ -37,3 +37,12 @@ include = ["agrosuite*"]
 
 [tool.setuptools.package-data]
 agrosuite = ["app/static/*", "app/static/vendor/*"]
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    # starlette 1.6 still names anyio.abc.BlockingPortal, an alias anyio 4
+    # deprecates. starlette requires anyio below 5, the release that could
+    # drop it, so the warning says nothing about this project. Remove the
+    # line once starlette stops using the alias.
+    "ignore:The anyio.abc.BlockingPortal alias is deprecated:DeprecationWarning",
+]
