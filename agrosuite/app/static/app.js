@@ -106,6 +106,7 @@ const App = {
 
   async init() {
     MapView.init("map", "point-canvas");
+    this.addLocateControl();
 
     try {
       this.state.catalog = await this.api("/api/catalog");
@@ -136,9 +137,49 @@ const App = {
       // itself. Either way the page comes back where the work was left.
       await this.refreshRecent();
       await this.restoreView();
+      // With a file to show the map goes to it; with none, to where the
+      // person is.
+      if (!this.state.selectedId) this.goToMyLocation({ quiet: true });
     });
     this.refreshSettings();
     this.watchAutosave();
+  },
+
+  /* The browser's answer to "where am I", on the map. Asked on its own at
+   * start, it says nothing when it cannot answer and yields to a file picked
+   * in the meantime; asked from the button, it says why when it cannot. */
+  async goToMyLocation({ quiet = false } = {}) {
+    try {
+      const me = await MapView.locate();
+      if (quiet && this.state.selectedId) return;
+      MapView.showMe(me.lat, me.lon, me.accuracy);
+    } catch (err) {
+      if (!quiet) this.toast("Your location", err.message, "warn");
+    }
+  },
+
+  /* A button under the zoom: back to where the person is, from any field. */
+  addLocateControl() {
+    const Locate = L.Control.extend({
+      options: { position: "topleft" },
+      onAdd: () => {
+        const box = L.DomUtil.create("div", "leaflet-bar");
+        const button = L.DomUtil.create("a", "locate-me", box);
+        button.href = "#";
+        button.title = "Go to my location";
+        button.setAttribute("role", "button");
+        button.setAttribute("aria-label", "Go to my location");
+        button.textContent = "⌖";
+        L.DomEvent.on(button, "click", (event) => {
+          L.DomEvent.preventDefault(event);
+          L.DomEvent.stopPropagation(event);
+          this.goToMyLocation();
+        });
+        L.DomEvent.disableClickPropagation(box);
+        return box;
+      },
+    });
+    new Locate().addTo(MapView.instance());
   },
 
   bindTopbar() {
@@ -493,6 +534,7 @@ const App = {
     }
     if (name === "draw") { this.goToTab("ensaio"); this.startDrawing(); return; }
     if (name === "demo-terrain") { document.getElementById("btn-demo-terrain").click(); return; }
+    if (name === "terrain-fetch") { await this.fetchTerrainDem(argument || selected, button); return; }
     if (name === "demo-machine") { await this.loadMachineDemo(); return; }
     if (name === "machine-export") { this.goToTab("machine"); await this.exportMachine(button); return; }
     if (name === "machine-stats") { this.goToTab("machine"); this.machineStatsDownload(); return; }
@@ -962,11 +1004,16 @@ Object.assign(App, {
               hint: "Zones are what the analysis produced, not a layer of the "
                     + "field: re-gridding their cell centres would hand back a "
                     + "coarser copy of the relief they were cut from." })
-        : this.missingPanel("Terrain", refusal,
-            { cta: "load", label: "Open a file that carries the altitude",
-              hint: "A yield or as-applied export from the monitor logs a GPS height "
-                    + "on every point; a DEM GeoTIFF of the field works too." })
-          + this.terrainDemoPanel();
+        : d.bounds
+          // The file says where the field is, only not how it lies: the
+          // heights can be fetched for that ground, which is what was asked
+          // for — rather than a made-up field that happens to have them.
+          ? this.terrainFetchPanel(d, refusal) + this.terrainDemoPanel()
+          : this.missingPanel("Terrain", refusal,
+              { cta: "load", label: "Open a file that carries the altitude",
+                hint: "A yield or as-applied export from the monitor logs a GPS height "
+                      + "on every point; a DEM GeoTIFF of the field works too." })
+            + this.terrainDemoPanel();
       return;
     }
 
@@ -1029,13 +1076,55 @@ Object.assign(App, {
     this.showTerrainLayer();
   },
 
+  /* A secondary button on purpose: pressed in place of the action the panel
+   * is about, a made-up field in another place looked like the analysis of
+   * the file on screen. The label says what it loads. */
   terrainDemoPanel() {
-    return this.missingPanel(
-      "Or try it on made-up relief",
-      "The terrain demo is a synthetic field of known relief — two hills, a "
-      + "valley and a closed hollow — logged the way a monitor would log it, "
-      + "GPS noise and pass-to-pass offsets included.",
-      { cta: "demo-terrain", label: "Terrain demo" });
+    return `
+      <div class="panel">
+        <h3>Or try it on made-up relief</h3>
+        <p class="hint tight">The terrain demo loads a synthetic field of known relief — two
+          hills, a valley and a closed hollow — somewhere else, logged the way a monitor
+          would log it. It is not your field.</p>
+        <button class="wide" data-cta="demo-terrain">Load the made-up field</button>
+      </div>`;
+  },
+
+  /* For a file that places the field but carries no height: a boundary, a
+   * trial layout, a prescription. The heights come from a public model of
+   * that ground, fetched when asked for. */
+  terrainFetchPanel(d, refusal) {
+    return `
+      <div class="panel">
+        <h3>Terrain</h3>
+        <div class="note">${this.escape(refusal)}</div>
+        <p style="margin:10px 0 6px">'${this.escape(d.label)}' does say where the field is, so its
+          relief can come from a public elevation model of that ground.</p>
+        <button class="primary wide" data-cta="terrain-fetch:${d.id}">
+          Get the elevation for this field</button>
+        <p class="hint tight">Canada's HRDEM (1 m, from LiDAR) where it covers the field,
+          otherwise the worldwide Copernicus model (30 m) — coarse for one field, but it shows
+          how the field lies. It needs the internet, and the only thing that leaves this
+          computer is the field's area, as the request for its heights.</p>
+        <button class="wide" style="margin-top:8px" data-cta="load">
+          Or open a file that carries the altitude</button>
+      </div>`;
+  },
+
+  /* The heights fetched, the new layer picked and analysed: one press from
+   * a file without heights to the relief of its field. */
+  async fetchTerrainDem(id, button) {
+    const result = await this.busy(document.getElementById("right-panel"), () =>
+      this.api("/api/terrain/fetch-dem", { method: "POST", body: { dataset_id: id } }));
+    if (!result) return;
+    await this.refreshDatasets();
+    await this.selectDataset(result.dataset.id);
+    this.goToTab("terrain");
+    this.toast("Elevation fetched",
+      `${result.source_label}, ${Units.num(Units.convert.length(result.resolution_m), 0)} `
+      + `${Units.label.length()} cells${result.cached ? ", from this computer's copy" : ""}. `
+      + "Reading the relief now.");
+    await this.runTerrain();
   },
 
   /* The analysis on screen, when it belongs to the dataset on screen: one

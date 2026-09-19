@@ -463,9 +463,14 @@ def test_a_file_with_no_altitude_says_what_to_open_instead(page):
     panel = page.locator("#right-panel").inner_text()
     assert "no usable elevation" in panel
     assert "GPS altitude" in panel
-    # The one button that fixes it, and the demo for someone with no such file.
+    # The file places the field, so the heights can be fetched for it — the
+    # one primary button. Opening another file and the demo come after, and
+    # the demo is not dressed as the thing to do.
+    fetch = page.locator('#right-panel button[data-cta^="terrain-fetch"]')
+    assert fetch.count() == 1 and "primary" in fetch.get_attribute("class")
     assert page.locator('#right-panel button[data-cta="load"]').count() == 1
-    assert page.locator('#right-panel button[data-cta="demo-terrain"]').count() == 1
+    demo = page.locator('#right-panel button[data-cta="demo-terrain"]')
+    assert demo.count() == 1 and "primary" not in (demo.get_attribute("class") or "")
 
 
 def test_a_field_with_no_relief_is_reported_as_level(page, tmp_path):

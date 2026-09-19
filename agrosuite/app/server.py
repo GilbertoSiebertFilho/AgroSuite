@@ -1609,5 +1609,22 @@ def _include_feature_routers() -> None:
 
 _include_feature_routers()
 
+
+class _RevalidatedStatic(StaticFiles):
+    """The interface's files, which the browser must check before reusing.
+
+    Served with only an ETag and a Last-Modified, a browser guesses how long
+    a copy stays good — hours, for a script changed days ago — and after an
+    update it goes on running yesterday's app.js against today's server.
+    ``no-cache`` keeps the copy but asks each time; on this computer the
+    answer is a 304 in a millisecond when nothing changed.
+    """
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 if STATIC_DIR.exists():
-    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+    app.mount("/static", _RevalidatedStatic(directory=STATIC_DIR), name="static")

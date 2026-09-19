@@ -78,9 +78,68 @@ function createMapView(defaultMapId, defaultCanvasId) {
 
   function onWindowResize() { resize(); draw(); indexDirty = true; }
 
+  /* Where the person is. The browser is asked — it asks them once — and the
+   * place it answers is kept in this browser, so the next start opens there
+   * at once, while the new answer is on its way, and still does where the
+   * browser is not allowed to say. It never goes to the server. With nothing
+   * kept yet, the map opens where it always did. */
+  const LOCATION_KEY = "agrosuite:location";
+  const FALLBACK_VIEW = { lat: -23.5, lon: -51.2, zoom: 15 };
+  const LOCATED_ZOOM = 15;
+  let meLayer = null;
+
+  function savedLocation() {
+    try {
+      const kept = JSON.parse(localStorage.getItem(LOCATION_KEY) || "null");
+      return kept && Number.isFinite(kept.lat) && Number.isFinite(kept.lon) ? kept : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function locate({ timeoutMs = 10000 } = {}) {
+    return new Promise((resolve, reject) => {
+      if (!navigator.geolocation) {
+        reject(new Error("This browser cannot tell where it is."));
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const found = { lat: position.coords.latitude, lon: position.coords.longitude,
+                          accuracy: position.coords.accuracy };
+          try {
+            localStorage.setItem(LOCATION_KEY, JSON.stringify({ lat: found.lat, lon: found.lon }));
+          } catch { /* private window: the next start asks again */ }
+          resolve(found);
+        },
+        (error) => reject(new Error(error.code === 1
+          ? "The browser was not allowed to share the location. Allow it from the icon at "
+            + "the left of the address bar."
+          : "The location could not be found — Windows location may be switched off.")),
+        { enableHighAccuracy: false, timeout: timeoutMs, maximumAge: 10 * 60 * 1000 });
+    });
+  }
+
+  /* A blue dot where the person is, with how sure the browser is as a ring —
+   * a desktop places itself by its network, which can be a few hundred metres
+   * out — and the map centred on it. */
+  function showMe(lat, lon, accuracy) {
+    if (!map) return;
+    if (meLayer) map.removeLayer(meLayer);
+    meLayer = L.layerGroup([
+      L.circle([lat, lon], { radius: Math.min(accuracy || 0, 3000), color: "#1e88e5",
+                             weight: 1, fillOpacity: 0.08, interactive: false }),
+      L.circleMarker([lat, lon], { radius: 6, color: "#ffffff", weight: 2,
+                                   fillColor: "#1e88e5", fillOpacity: 1, interactive: false }),
+    ]).addTo(map);
+    map.setView([lat, lon], LOCATED_ZOOM);
+  }
+
   function init(mapId = defaultMapId, canvasId = defaultCanvasId) {
+    const start = savedLocation();
     map = L.map(mapId, { preferCanvas: true, zoomControl: true, attributionControl: false })
-      .setView([-23.5, -51.2], 15);
+      .setView(start ? [start.lat, start.lon] : [FALLBACK_VIEW.lat, FALLBACK_VIEW.lon],
+               start ? LOCATED_ZOOM : FALLBACK_VIEW.zoom);
 
     basemap = L.tileLayer(
       "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
@@ -603,7 +662,7 @@ function createMapView(defaultMapId, defaultCanvasId) {
     init, destroy, invalidateSize, setPoints, clearPoints, setOverlay, clearOverlay,
     setPolygons, setFeatures, addLine, clearOverlays,
     setImage, setImageOpacity, clearImage, setGeoJson, clearGeoJson, clearNamed,
-    setClickThrough, panTo,
+    setClickThrough, panTo, locate, showMe, savedLocation,
     fit, fitOverlays, setBasemap, rampCss, rampColor, draw, onClick, offClick, instance,
   };
 }

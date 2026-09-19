@@ -372,6 +372,9 @@ table.data td.num { font-family: var(--mono); }
 
 .scroll-x { overflow-x: auto; }
 
+/* The map's "go to my location" button, sized like the zoom buttons above it. */
+.leaflet-bar a.locate-me { font-size: 18px; line-height: 26px; font-weight: 600; }
+
 /* The Machine tab: a swatch of each activity's map colour beside its name,
    the asides in its tables, and the row that adds them up. */
 .swatch {
