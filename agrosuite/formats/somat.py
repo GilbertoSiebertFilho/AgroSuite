@@ -23,8 +23,8 @@ Three things the file does not do for you
   longitude. Each channel declares its own, and they become NaN before
   anything is computed.
 * **Cumulative counters wrap** at the top of their declared range: the
-  distance counter of a New Holland 370F goes back to 0 after 100 000 ft,
-  twice in an ordinary day. The per-sample increments (``DeltaD``,
+  distance counter of the sprayer this was written against goes back to 0
+  after 100 000 ft, more than once in an ordinary day. The per-sample increments (``DeltaD``,
   ``DeltaF``) never wrap, so the totals are rebuilt from them and checked
   against the counters and against the GPS.
 * **The logger's clock is local and drifts** — 23 s behind the GPS on the
@@ -61,7 +61,7 @@ FOOTER_BYTES = 8
 _NS = "{http://www.somat.com/SIE}"
 
 #: The data mode a SoMat test writes its time histories to. Others (a second
-#: ``Omni_2022`` mode on the 370F) repeat the same channels.
+#: ``Omni_2022`` mode on the first logger read) repeat the same channels.
 MAIN_DATAMODE = "__dm"
 
 #: Raw channel -> column in the dataset. Anything not listed is kept too,

@@ -315,8 +315,8 @@ def test_phrase_writes_money_durations_and_fuel():
     assert say.money(12.4) == "C$ 12.40"
     assert say.duration(23_880) == "6 h 38 min"
     assert say.duration(40) == "40 s" and say.duration(7200) == "2 h"
-    assert say.liquid(146.07) == "146 L"
-    assert Phrase(UNIT_PRESETS["usa"]).liquid(146.07) == "38.6 gal"
+    assert say.liquid(132.49) == "132 L"
+    assert Phrase(UNIT_PRESETS["usa"]).liquid(132.49) == "35.0 gal"
     assert say.distance(79_590) == "49.5 mi"
     assert Phrase().liquid_per_area(8.4) == "8.4 L/ha"
 
@@ -329,7 +329,7 @@ def test_a_sprayer_profile_keeps_its_tyres_and_def_tank():
     from agrosuite.core.profiles import MachineProfile
 
     p = MachineProfile.from_dict({
-        "name": "NH 370F", "kind": "sprayer", "implement_width_m": 36.576,
+        "name": "Sprayer 120 ft", "kind": "sprayer", "implement_width_m": 36.576,
         "speed_min_kmh": 8, "speed_max_kmh": 25, "tyre_size": "380/90R46",
         "track_width_m": 3.048, "rear_follows_front": "true", "def_tank_l": 60})
     assert p.problems() == []

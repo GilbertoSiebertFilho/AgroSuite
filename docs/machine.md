@@ -11,8 +11,8 @@ crossed the crop. The Machine tab reads the log of an HBM SoMat eDAQ logger
 
 This document is the reference for the reader, the analysis and the API.
 Every number below was checked against a made-up day with known answers
-(`agrosuite/machine/synthetic.py`) and against a real log: a New Holland
-370F's day on the Olds College wheat trial, 2 September 2026.
+(`agrosuite/machine/synthetic.py`) and against a real day's log from a
+self-propelled sprayer.
 
 ---
 
@@ -34,8 +34,8 @@ group, sample rate, units, data mode, decoder, and — what matters most — the
 value the logger writes when it has no reading
 (`somat:invalid_data_output_value`) and the channel's physical range.
 
-**Data modes.** A test may write the same channels twice (the 370F has
-`__dm` and `Omni_2022`); `__dm` is read and the other named in the notes.
+**Data modes.** A test may write the same channels twice (the first logger
+read has `__dm` and `Omni_2022`); `__dm` is read and the other named in the notes.
 
 | Channel | Column | Stored as |
 |---|---|---|
@@ -66,15 +66,16 @@ and dropped too.
   longitude, 255 satellites. Each channel declares its own; they become NaN,
   and so does anything outside the channel's declared range.
 * *Counters wrap* at the top of their declared range. `DistTraveled` on the
-  370F goes back to 0 after 100 000 ft: twice on 2 September, so read at face
-  value the day was 30 km instead of 79.6. The totals are rebuilt from the
+  first sprayer read goes back to 0 after 100 000 ft — more than once in a
+  day, so read at face value most of the distance is lost. The totals are
+  rebuilt from the
   increments (`DeltaD`, `DeltaF`), which never wrap, and checked against the
-  unwrapped counter, the fuel rate integrated over time and the GPS. On the
-  wheat day all three fuel figures agree at 146.07 L; distance at 79.6 km
-  by increments and counter, 79.9 by GPS.
+  unwrapped counter, the fuel rate integrated over time and the GPS. On a
+  real day the three fuel figures agree to a hundredth of a litre, and the
+  distance by increments and by counter to within half a percent of the GPS.
 * *The logger's clock is local and drifts.* The GPS UTC channels give the
-  offset: 6 h 00 min 23 s on the wheat day, which is MDT (UTC−6) and a
-  23 s lag. Times are set to GPS time in the logger's zone; an offset that is
+  offset — on the first log read, six hours and 23 seconds: the time
+  zone (UTC−6) and a 23 s lag. Times are set to GPS time in the logger's zone; an offset that is
   not a whole time zone within five minutes is left alone with a note.
 
 `meta.extra["somat"]` records what was checked: the channel inventory with
@@ -106,7 +107,7 @@ cost at the price given. The area covered is the union of the boom's swath
 along the field path, clipped to the boundary — overlaps once.
 
 **DEF.** The level is read through a one-minute rolling median (it sloshes
-with every turn and reads in steps — 0.4 % on the 370F); a sustained rise of
+with every turn and reads in steps — 0.4 % on the first logger read); a sustained rise of
 more than 5 points is a refill, and the drops either side are added. With
 the tank's capacity the drop is litres and a share of the diesel. A drop of
 fewer than three gauge steps is flagged as rough.

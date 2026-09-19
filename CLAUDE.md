@@ -40,9 +40,9 @@ day, fuel, DEF and tyre trampling (the Machine tab) · `difm/` response,
 economics, trial layout (the Economics tab) · `app/` local server and
 interface · `mcp_server.py` the tool surface Claude drives.
 
-A real SoMat log to try things against lives outside the repo, in
-`GIT\CNH_Augmenta\2026\Field_South_Wheat\2_Analisys\01_input\somat\`; the tests
-use `machine/synthetic.py`, which writes a day with known answers.
+Real SoMat logs stay out of the repo — they are field data, and the repo is
+public. The tests use `machine/synthetic.py`, which writes a day with known
+answers and every habit of the real logger.
 
 `.mcp.json` registers that MCP server for sessions opened in this folder,
 by a path relative to the project (`${CLAUDE_PROJECT_DIR:-.}`) in the

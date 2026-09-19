@@ -181,12 +181,12 @@ def test_an_unanalysed_log_says_what_to_do(client):
 
 def test_a_profile_keeps_the_tyres_and_the_def_tank(client, tmp_path, monkeypatch):
     monkeypatch.setenv("AGROSUITE_HOME", str(tmp_path / "home"))
-    body = {"name": "NH 370F", "kind": "sprayer", "implement_width_m": 36.576,
+    body = {"name": "Sprayer 120 ft", "kind": "sprayer", "implement_width_m": 36.576,
             "speed_min_kmh": 8, "speed_max_kmh": 25, "tyre_size": "380/90R46",
             "track_width_m": 3.048, "rear_follows_front": True, "def_tank_l": 60}
     response = client.post("/api/profiles", json=body)
     assert response.status_code == 200, response.text
-    saved = next(p for p in client.get("/api/profiles").json()["profiles"] if p["name"] == "NH 370F")
+    saved = next(p for p in client.get("/api/profiles").json()["profiles"] if p["name"] == "Sprayer 120 ft")
     assert saved["tyre_width_m"] == pytest.approx(0.38)
     assert saved["track_width_m"] == 3.048 and saved["def_tank_l"] == 60
 
