@@ -58,6 +58,9 @@ const Units = (() => {
     length: (v) => (v == null ? null : v / factor("length", prefs.length_unit)),
     speed: (v) => (v == null ? null : v / factor("speed", prefs.speed_unit)),
     mass: (v) => (v == null ? null : v / factor("mass", prefs.mass_unit)),
+    liquid: (v) => (v == null ? null : v / factor("liquid", prefs.liquid_unit)),
+    // Kilometres in, the unit picked out.
+    distance: (v) => (v == null ? null : v / factor("distance", prefs.distance_unit)),
   };
 
   /* The other direction: screen unit to internal, on the way to the server. */
@@ -67,6 +70,8 @@ const Units = (() => {
     area: (v) => (v == null ? null : v * factor("area", prefs.area_unit)),
     length: (v) => (v == null ? null : v * factor("length", prefs.length_unit)),
     speed: (v) => (v == null ? null : v * factor("speed", prefs.speed_unit)),
+    liquid: (v) => (v == null ? null : v * factor("liquid", prefs.liquid_unit)),
+    distance: (v) => (v == null ? null : v * factor("distance", prefs.distance_unit)),
   };
 
   const label = {
@@ -76,6 +81,9 @@ const Units = (() => {
     length: () => prefs.length_unit,
     speed: () => prefs.speed_unit,
     mass: () => prefs.mass_unit,
+    // A unit set saved before these existed has no key for them.
+    liquid: () => prefs.liquid_unit || "L",
+    distance: () => prefs.distance_unit || "km",
   };
 
   /* Operations where the main variable is harvested production. In every other
@@ -89,6 +97,9 @@ const Units = (() => {
     const isYield = operation == null
       ? true                              // with no context, yield is the default
       : YIELD_OPERATIONS.has(operation);
+    if (column === "value" && operation === "telemetry") {
+      return { conv: convert.liquid, unit: `${label.liquid()}/h`, kind: "liquid" };
+    }
     switch (column) {
       case "value":
         return isYield
@@ -105,6 +116,24 @@ const Units = (() => {
         return { conv: convert.length, unit: label.length(), kind: "length" };
       case "moisture_pct":
         return { conv: (v) => v, unit: "%", kind: null };
+      // A machine's telemetry: fuel in the unit picked, the rest as logged.
+      case "fuel_rate_lh":
+        return { conv: convert.liquid, unit: `${label.liquid()}/h`, kind: "liquid" };
+      case "fuel_l":
+      case "fuel_counter_l":
+        return { conv: convert.liquid, unit: label.liquid(), kind: "liquid" };
+      case "distance_counter_m":
+        return { conv: (v) => convert.distance(v / 1000), unit: label.distance(), kind: null };
+      case "def_level_pct":
+      case "engine_load_pct":
+        return { conv: (v) => v, unit: "%", kind: null };
+      case "engine_rpm":
+        return { conv: (v) => v, unit: "rpm", kind: null };
+      case "coolant_c":
+        return { conv: (v) => v, unit: "°C", kind: null };
+      case "battery_v":
+      case "logger_v":
+        return { conv: (v) => v, unit: "V", kind: null };
       default:
         return { conv: (v) => v, unit: "", kind: null };
     }

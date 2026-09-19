@@ -372,6 +372,15 @@ table.data td.num { font-family: var(--mono); }
 
 .scroll-x { overflow-x: auto; }
 
+/* The Machine tab: a swatch of each activity's map colour beside its name,
+   the asides in its tables, and the row that adds them up. */
+.swatch {
+  display: inline-block; width: 10px; height: 10px; border-radius: 2px;
+  margin-right: 6px; vertical-align: -1px;
+}
+.muted { color: var(--text-muted); }
+table.data tr.total td { font-weight: 600; border-top: 1px solid var(--border); }
+
 .stat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
 .stat {
   border: 1px solid var(--border); border-radius: var(--radius-sm);

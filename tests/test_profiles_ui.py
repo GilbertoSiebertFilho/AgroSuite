@@ -37,7 +37,7 @@ def test_dialog_and_its_buttons_are_in_the_page():
 
 
 def test_every_tab_draws_and_binds_its_picker():
-    for scope in ("clean", "design", "package"):
+    for scope in ("clean", "design", "package", "machine"):
         assert f'this.machinePicker("{scope}")' in APP_JS, f"no picker for {scope}"
         assert f'this.bindMachinePicker("{scope}")' in APP_JS, f"picker for {scope} never bound"
 
@@ -67,9 +67,11 @@ def test_pickers_fill_the_fields_the_tabs_draw():
     scope = _block("machineScope")
     filled = set(re.findall(r'put\("([\w-]+)"', scope))
     assert filled == {"clean-delay", "p-speed_range-min", "p-speed_range-max",
-                      "design-width", "design-passes"}
+                      "design-width", "design-passes",
+                      "m-boom", "m-track", "m-tyre", "m-def-tank"}
     elsewhere = APP_JS.replace(scope, "")
-    for node_id in ("clean-delay", "design-width", "design-passes", "pkg-monitor"):
+    for node_id in ("clean-delay", "design-width", "design-passes", "pkg-monitor",
+                    "m-boom", "m-track", "m-tyre", "m-def-tank", "m-rear"):
         assert f'"{node_id}"' in elsewhere, f"no form field draws #{node_id}"
     # The speed inputs are drawn per filter step as `p-${step.key}-${key}`, and
     # the checkbox as `en-${step.key}`; the step itself must carry min and max.

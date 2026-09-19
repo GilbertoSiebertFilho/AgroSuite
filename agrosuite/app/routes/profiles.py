@@ -35,6 +35,12 @@ class ProfileRequest(BaseModel):
     passes_per_strip: float = 2
     speed_min_kmh: float | None = None
     speed_max_kmh: float | None = None
+    #: The Machine tab's: tyre, track width, rear-in-front and the DEF tank.
+    #: Empty and zero mean "not given".
+    tyre_size: str = ""
+    track_width_m: float = 0.0
+    rear_follows_front: bool = True
+    def_tank_l: float = 0.0
     notes: str = ""
     #: A profile already saved under this name is replaced only when this is
     #: set; otherwise the save is refused with a 409 so the interface can ask.
