@@ -600,8 +600,9 @@ def findings(summary: dict[str, Any], units: dict[str, Any] | None = None) -> li
         speed = summary.get("speed", {}).get("field", {})
         text = f"Field work: {say.duration(field['time_s'])} over {say.distance(field.get('distance_m'))}"
         if speed.get("median") is not None:
-            text += (f", at {say.speed(speed['median'])} "
-                     f"(most of it between {say.speed(speed['p10'])} and {say.speed(speed['p90'])})")
+            text += f", at {say.speed(speed['median'])}"
+            if say.speed(speed["p10"]) != say.speed(speed["p90"]):
+                text += f" (most of it between {say.speed(speed['p10'])} and {say.speed(speed['p90'])})"
         if field.get("fuel_lh"):
             text += f", using {say.liquid_per_hour(field['fuel_lh'])}"
         out.append({"level": "info", "text": text + "."})

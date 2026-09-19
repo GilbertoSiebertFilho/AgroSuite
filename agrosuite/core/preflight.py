@@ -294,6 +294,22 @@ def _check_columns(ds, say: units_mod.Phrase) -> tuple[list[Finding], dict[str, 
                 ))
         return findings, info
 
+    # A machine's telemetry is a log, but not one the cleaning reads: it has
+    # no swath and no yield, and its stops and road travel are what the
+    # Machine tab is for, not defects to filter.
+    if ds.meta.operation == "telemetry":
+        named = {"fuel_rate_lh": "fuel rate", "def_level_pct": "DEF level",
+                 "engine_rpm": "engine speed", "engine_load_pct": "engine load",
+                 "coolant_c": "coolant temperature", "battery_v": "battery voltage"}
+        channels = [name for column, name in named.items() if column in present]
+        findings.append(_ok(
+            "Columns",
+            "A machine log: " + (", ".join(channels[:4]) + " and more, " if channels else "")
+            + "with the logger's own GPS — what the Machine tab reads to split the day "
+            "into field work, stops and road.",
+        ))
+        return findings, info
+
     # A plan or a boundary is a map, not a log. It never carries a speed or a
     # swath width, and saying so would be noise dressed up as a warning.
     if ds.meta.operation in ("prescription", "boundary", "guidance"):
@@ -561,6 +577,19 @@ def _check_quality(ds, say: units_mod.Phrase) -> tuple[list[Finding], dict[str, 
     info: dict[str, Any] = {}
     total = len(ds)
     if not total:
+        return findings, info
+
+    # Repeated positions are a machine standing still and speeds outside the
+    # working range are the road: in telemetry they are the day, not defects.
+    # What the reader set aside is said in the file's own notes.
+    if ds.meta.operation == "telemetry":
+        invalid = (ds.meta.extra or {}).get("somat", {}).get("invalid") or {}
+        if invalid:
+            findings.append(_ok(
+                "Readings set aside",
+                f"{_thousands(sum(invalid.values()))} readings the logger marked as missing "
+                "were set aside on reading; the notes list them by channel.",
+            ))
         return findings, info
 
     if sch.VALUE in ds.df.columns:
