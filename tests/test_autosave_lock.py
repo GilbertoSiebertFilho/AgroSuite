@@ -150,6 +150,20 @@ def _claim_of(project: Path) -> dict:
     return json.loads(projectlock.lock_path(project).read_text(encoding="utf-8"))
 
 
+def _claimed(project: Path) -> bool:
+    """The claim is on disk and can be read.
+
+    A first claim creates the lock file and then fills it, so for an
+    instant the file exists and is empty; waiting on its existence alone
+    lets a test read it in that instant.
+    """
+    try:
+        _claim_of(project)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return False
+    return True
+
+
 def _until(predicate, timeout: float = 8.0) -> bool:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -350,7 +364,9 @@ def test_a_new_project_gives_the_last_one_back(projects, state, quick):
     with TestClient(server_mod.app) as client:
         client.post("/api/import/demo", json={"kind": "harvest"})
         target = projects / "Untitled project.agrosuite"
-        assert _until(lambda: projectlock.lock_path(target).exists())
+        # The writer claims the project before it writes it: the claim alone
+        # does not mean there is a file to read yet.
+        assert _until(lambda: _claimed(target) and target.exists())
         kept = target.read_bytes()
 
         assert client.post("/api/session/new", json={}).status_code == 200
@@ -504,7 +520,7 @@ def test_the_heartbeat_is_refreshed_while_the_app_runs(projects, state, quick, m
     with TestClient(server_mod.app) as client:
         client.post("/api/import/demo", json={"kind": "harvest"})
         target = projects / "Untitled project.agrosuite"
-        assert _until(lambda: projectlock.lock_path(target).exists())
+        assert _until(lambda: _claimed(target))
         first = _claim_of(target)["heartbeat"]
 
         # The stamps are whole seconds, like every other time the app writes.
