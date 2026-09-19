@@ -6,9 +6,16 @@ clean harvest and application maps with a report of what was removed, work out
 what the trial earned, and generate the files to take back to the monitor —
 already laid out the way each terminal expects.
 
-Everything runs on your computer. No data leaves the machine: the server
+Everything runs on your computer. Your files never leave it: the server
 listens only on `127.0.0.1`, the working files live in a session folder, and
-the projects in a folder of your choosing.
+the projects in a folder of your choosing. The app goes online for two
+things you can see: the satellite imagery behind the map, and — only when
+you press *Get the elevation for this field* — a public elevation model of
+that field, for which the field's area is what is sent.
+
+The map opens where you are: the browser asks once for your location, and
+keeps the answer to itself. The ⌖ button under the zoom brings the map back
+there from any field.
 
 ![workflow](docs/workflow.svg)
 
@@ -132,6 +139,7 @@ It takes what the monitor produces:
 | Case IH AFS, New Holland PLM | ISOXML (TASKDATA plus binary TLG logs) |
 | Bourgault X30/X35, Väderstad, Topcon/Müller | ISOXML, CSV |
 | Augmenta | session GeoJSON, carrying vigour and rate |
+| HBM SoMat eDAQ | `.sie` machine telemetry — engine CAN bus and GPS (the Machine tab) |
 | Anything else | shapefile, GeoJSON, CSV/TXT, Excel, KML/KMZ, ZIP |
 
 The app identifies the manufacturer from the column signature and the folder
@@ -177,6 +185,16 @@ first, because a file whose rate column holds 1, 2 and 3 is a map of class
 codes and the terminal will apply it as written. The whole analysis also
 leaves as one zip for QGIS: a GeoTIFF per layer, the contours, the features
 and the drainage lines, with a README naming each file.
+
+**A file that places the field but carries no height** — a boundary, a
+trial layout, a prescription — is not a dead end. *Get the elevation for this
+field* fetches a public elevation model of that ground and reads its relief:
+Canada's HRDEM, a 1 m bare-earth model from LiDAR, where it covers the
+field, and otherwise the worldwide Copernicus 30 m model, which shows how the
+field lies but is coarse for detail and counts trees and buildings as
+ground. The heights become an elevation layer of their own — the file keeps
+its role — and are kept on this computer, so the same field is not fetched
+twice.
 
 A DEM GeoTIFF is the better source when there is one, and it goes through
 the same chain — opened like any other file and read at the raster's own
@@ -460,7 +478,7 @@ any other monitor without redrawing anything.
 ## Development
 
 ```
-python -m pytest tests/ -q          # 906 tests, about five minutes
+python -m pytest tests/ -q          # 923 tests, about five minutes
 python tests/fixtures.py samples    # sample files for every monitor
 python -m agrosuite --reload        # server with auto-reload
 ```
