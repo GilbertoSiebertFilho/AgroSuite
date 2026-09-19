@@ -684,6 +684,38 @@ file, a field with no features has no features file.
 
 ---
 
+### Fetching a public elevation model
+
+`POST /api/terrain/fetch-dem` — `{dataset_id, source: "auto" | "hrdem" |
+"copernicus"}`. For a file that says where the field is but not how it lies.
+`agrosuite/terrain/fetch.py`.
+
+* **The field** is the file's polygons merged, or its points, closed by their
+  convex hull — a trial layout's alleys disappear — and grown by 30 m, the
+  ground the slope at the edge needs. Anything larger than 20 000 ha is
+  refused as not a field.
+* **HRDEM** (NRCan): the STAC catalogue at `datacube.services.geo.ca` lists
+  the `hrdem-mosaic-1m` tiles over the area, and their `dtm` asset — bare
+  earth, 1 m — is read. A tile can be listed and still be empty over the
+  field; its coverage is measured, and it is used only above 90 %.
+* **Copernicus GLO-30** (ESA), the fallback: the 1° tiles on
+  `copernicus-dem-30m.s3.amazonaws.com`, joined when the field crosses a
+  tile edge. A surface model at 30 m.
+* Both are cloud-optimised GeoTIFFs read by HTTP range requests: only the
+  field's window is transferred.
+* The window is masked to the outline and written to
+  `$AGROSUITE_HOME/dem/field_<hash>_<source>.tif`, named by the outline and
+  the source, so a second request for the same field is read from disk and a
+  saved project still finds the raster.
+* The result is registered as its own elevation dataset, labelled
+  `Elevation · <file>`, with the source, the resolution, the coverage and the
+  model's attribution in its notes and `meta.extra["dem_fetched"]`. The file
+  it was fetched for keeps its role.
+
+A failure names what was tried — the catalogue that did not answer, the
+coverage each model reached — and suggests the connection or a DEM of the
+field.
+
 ## 3 · The layers
 
 Twelve keys, in the order the interface should list them. `unit` is what the

@@ -956,6 +956,59 @@ def _readme(
 
 
 # ==========================================================================
+# A public elevation model for a file without heights
+# ==========================================================================
+
+class FetchDemRequest(BaseModel):
+    """The file whose field needs a relief, and where to take the heights from."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    dataset_id: str
+    source: str = "auto"
+
+
+@router.post("/fetch-dem")
+def fetch_dem(request: FetchDemRequest) -> dict[str, Any]:
+    """Fetch a public elevation model under a loaded file's field.
+
+    For a boundary, a trial layout or any file that says where the field is
+    but not how it lies. The heights come from HRDEM (1 m LiDAR) where it
+    covers the field, else Copernicus (30 m); only the field's area leaves
+    the computer, as the window asked for. The result is an elevation layer
+    of its own — the file it was fetched for keeps its role — ready for
+    :func:`analyze`.
+    """
+    from ...formats import registry
+    from ...terrain import fetch as fetch_mod
+    from ...terrain import notes as notes_mod
+
+    server_mod = _server()
+    entry = _entry(request.dataset_id)
+    try:
+        outline, area_ha = fetch_mod.field_outline(entry.dataset)
+        got = fetch_mod.fetch_dem(outline, source=request.source)
+        dataset = registry.read_any(got.path)
+    except fetch_mod.FetchError as exc:
+        raise server_mod._fail(str(exc))
+    except ValueError as exc:
+        raise server_mod._fail(f"The elevation was fetched but could not be read: {exc}")
+
+    extra = dataset.meta.extra
+    extra["note_facts"] = list(extra.get("note_facts") or []) + [
+        notes_mod.plain(note) for note in got.notes]
+    dataset.meta.notes = list(dataset.meta.notes or []) + got.notes
+    extra["dem_fetched"] = {"source": got.source, "resolution_m": got.resolution_m,
+                            "coverage": got.coverage, "for_id": entry.id,
+                            "for_label": entry.label, "area_ha": area_ha}
+    dataset.meta.name = f"Elevation · {entry.label}"
+    registered = server_mod._register(dataset, f"Elevation · {entry.label}", "fetched")
+    return {"dataset": registered, "source": got.source, "source_label": fetch_mod.LABEL[got.source],
+            "resolution_m": got.resolution_m, "coverage": got.coverage, "cached": got.cached,
+            "area_ha": area_ha}
+
+
+# ==========================================================================
 # Demo
 # ==========================================================================
 

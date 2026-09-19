@@ -45,4 +45,7 @@ filterwarnings = [
     # drop it, so the warning says nothing about this project. Remove the
     # line once starlette stops using the alias.
     "ignore:The anyio.abc.BlockingPortal alias is deprecated:DeprecationWarning",
+    # rasterio 1.5 multiplies an Affine with `*` inside from_origin and its
+    # window arithmetic; affine 3 prefers `@`. Its code, not this project's.
+    'ignore:Use `@` matmul instead of `\*` mul operator:PendingDeprecationWarning',
 ]
