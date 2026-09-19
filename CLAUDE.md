@@ -20,7 +20,7 @@ The server listens on 127.0.0.1:8765, or the first free port above it.
 .venv\Scripts\python.exe -m pytest tests/ -q
 ```
 
-905 tests, about six minutes.
+906 tests, about five minutes.
 
 **Always through `.venv`, never the machine's global Python.** The global
 interpreter carries affine 2.4, where `Affine @ (col, row)` does not exist, and

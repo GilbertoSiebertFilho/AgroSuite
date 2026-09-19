@@ -454,7 +454,7 @@ any other monitor without redrawing anything.
 ## Development
 
 ```
-python -m pytest tests/ -q          # 905 tests, about six minutes
+python -m pytest tests/ -q          # 906 tests, about five minutes
 python tests/fixtures.py samples    # sample files for every monitor
 python -m agrosuite --reload        # server with auto-reload
 ```
