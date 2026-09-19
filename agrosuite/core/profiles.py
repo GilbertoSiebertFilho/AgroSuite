@@ -95,6 +95,17 @@ class MachineProfile:
     passes_per_strip: int = 2
     speed_min_kmh: float = DEFAULT_SPEED_KMH["other"][0]
     speed_max_kmh: float = DEFAULT_SPEED_KMH["other"][1]
+    #: The tyre as written on the sidewall (380/90R46) and the section width
+    #: read from it; the track width, centre to centre of the left and right
+    #: wheels; and whether the rear wheels run in the front ones' tracks.
+    #: What the Machine tab needs to draw the strips a pass crushes. Zero
+    #: and empty mean "not given", and nothing else asks for them.
+    tyre_size: str = ""
+    tyre_width_m: float = 0.0
+    track_width_m: float = 0.0
+    rear_follows_front: bool = True
+    #: DEF tank capacity, which turns the gauge's drop into litres.
+    def_tank_l: float = 0.0
     notes: str = ""
 
     def to_dict(self) -> dict[str, Any]:
@@ -133,7 +144,14 @@ class MachineProfile:
         self.kind = str(self.kind or "").strip().lower()
         self.monitor = str(self.monitor or "generic").strip().lower() or "generic"
         self.notes = str(self.notes or "")
-        for name in ("implement_width_m", "flow_delay_s", "speed_min_kmh", "speed_max_kmh"):
+        self.tyre_size = str(self.tyre_size or "").strip()
+        if isinstance(self.rear_follows_front, str):
+            self.rear_follows_front = self.rear_follows_front.strip().lower() not in (
+                "0", "false", "no", "off")
+        else:
+            self.rear_follows_front = bool(self.rear_follows_front)
+        for name in ("implement_width_m", "flow_delay_s", "speed_min_kmh", "speed_max_kmh",
+                     "tyre_width_m", "track_width_m", "def_tank_l"):
             value = getattr(self, name)
             try:
                 number = float(value)
@@ -153,6 +171,30 @@ class MachineProfile:
                 f"'passes_per_strip' must be a whole number, not {self.passes_per_strip!r}."
             )
         self.passes_per_strip = int(passes)
+
+    def tyre_problems(self) -> list[str]:
+        """The tyre fields, checked only when given — most profiles never
+        carry them. A size that reads as a width fills the width in."""
+        from ..machine.trampling import MAX_TYRE_M, MIN_TYRE_M, parse_tyre
+
+        found: list[str] = []
+        if self.tyre_size and not self.tyre_width_m:
+            try:
+                self.tyre_width_m = parse_tyre(self.tyre_size)["width_m"]
+            except ValueError as exc:
+                found.append(str(exc))
+        if self.tyre_width_m and not MIN_TYRE_M <= self.tyre_width_m <= MAX_TYRE_M:
+            found.append(f"A tyre {self.tyre_width_m * 1000:.0f} mm wide is not a tyre's width. "
+                         "Check the size.")
+        crushed = self.tyre_width_m * (1 if self.rear_follows_front else 2)
+        if self.track_width_m < 0:
+            found.append("The track width cannot be negative.")
+        elif self.track_width_m and self.tyre_width_m and self.track_width_m <= crushed:
+            found.append("The track width is narrower than the tyres; it is measured centre to "
+                         "centre of the left and right wheels.")
+        if self.def_tank_l < 0:
+            found.append("The DEF tank capacity cannot be negative.")
+        return found
 
     def problems(self, *, defaulted: Collection[str] = ()) -> list[str]:
         """Everything that stops this profile from being saved, in plain words.
@@ -185,6 +227,7 @@ class MachineProfile:
             )
         if self.implement_width_m <= 0:
             found.append("The implement width must be greater than zero.")
+        found.extend(self.tyre_problems())
         if self.flow_delay_s < 0:
             found.append("The flow delay cannot be negative. Use 0 for no delay.")
         if self.passes_per_strip < 1:

@@ -111,8 +111,8 @@ would otherwise come out at 90, a treatment nobody applied.
 
 ## The tabs
 
-**Data · Terrain · Trial design · Cleaning · Economics · Export.** They carry
-no numbers, because no order is required.
+**Data · Terrain · Machine · Trial design · Cleaning · Economics · Export.**
+They carry no numbers, because no order is required.
 
 ### Data
 
@@ -192,6 +192,51 @@ The reference for the whole feature — the endpoints, the layers with their
 units and palettes, the landform codes and the zone datasets — is in
 [docs/terrain.md](docs/terrain.md).
 
+### Machine
+
+A monitor file says what the machine put down; a telemetry logger on the
+machine says what the day cost. A SoMat eDAQ log (`.sie`) records the
+engine's CAN bus — fuel rate, the fuel and distance counters, the DEF level,
+engine speed, load, coolant, battery — beside a GPS of its own, twice a
+second, usually for the whole day: the yard, the road and every field. Open
+it like any other file.
+
+**Analyse the day** splits every half second into field work, standing with
+the engine running, the road, and engine off, and says where the time, the
+distance, the diesel and the DEF went in each. A field boundary loaded
+alongside is what tells the field from the road; without one, speed decides
+and the panel says so. The answer comes as sentences and tables: diesel per
+hour, per kilometre on the road and per hectare the boom covered, the price
+of it, how long the machine stood with the engine running and what that
+burnt, the DEF as a share of the diesel, engine load and working speed, and
+a per-channel statistics table in the shape InField reports it.
+
+**The crop under the tyres.** Give the tyre as it is written on the sidewall
+(`380/90R46`, `18.4R38`, or `380 mm`), the track width and whether the rear
+wheels run in the front ones' tracks, and the tab draws the strips the tyres
+crushed inside the field from where the machine actually went — ground driven
+twice counts once. With a yield (typed, or averaged from a loaded yield map)
+and the share of the crop under a tyre that is lost — 100 % for a
+pre-harvest pass, less for an early one the crop grows back from — it puts a
+crop loss and a price on it. The logger's GPS has no RTK correction, so
+where tramlines were driven again a metre off, the area is an upper bound;
+the panel says that too.
+
+The file is read the way it was written, not the way it looks. Missing
+readings are numbers (−1 L/h, 1000 °C, −500 V) and each channel declares its
+own, so they are set aside from what the file says rather than from a list.
+The distance counter of a New Holland 370F wraps at 100 000 ft — twice in an
+ordinary day, which read at face value turns 80 km into 30 — so the totals
+are rebuilt from the per-sample increments and checked against the counter,
+the fuel rate and the GPS. The logger's clock is set right from the GPS time
+in the same log.
+
+The tyres, the track width and the DEF tank belong to the machine, so they
+go in its profile. Everything leaves as one zip for QGIS: the path by
+activity, the stops, the tyre strips, every sample with its activity, the
+statistics and a README. The reference is in
+[docs/machine.md](docs/machine.md).
+
 ### Trial design
 
 It generates randomized block strips over the field boundary: width a multiple
@@ -268,7 +313,8 @@ one of them. Typing "60 ft, 12 s" for the third time this season is how a 6
 sneaks in for a 60. A **machine** is entered once and picked from a small row
 on each of those tabs: choosing it fills the fields that tab needs — flow
 delay and speed range on Cleaning, implement width and passes per strip on
-Trial design, the target monitor on Export — in whatever units you chose.
+Trial design, the target monitor on Export, the boom, the tyres, the track
+width and the DEF tank on Machine — in whatever units you chose.
 
 **Save as machine…** reads the current settings back into a short form;
 **Suggest from this file** prefills it from the selected dataset (median
@@ -408,7 +454,7 @@ any other monitor without redrawing anything.
 ## Development
 
 ```
-python -m pytest tests/ -q          # 815 tests, about four minutes
+python -m pytest tests/ -q          # 906 tests, about five minutes
 python tests/fixtures.py samples    # sample files for every monitor
 python -m agrosuite --reload        # server with auto-reload
 ```
@@ -435,6 +481,8 @@ agrosuite/
   clean/      cleaning filters and report
   terrain/    elevation grid, derivatives, landforms, hydrology,
               contours, layer rendering
+  machine/    a telemetry log's day by activity, fuel and DEF, the
+              tyre strips and the crop they cost
   difm/       response models, economics, trial layout, layer joining
               (an internal folder name; on screen the tab is Economics)
   app/        local server and interface

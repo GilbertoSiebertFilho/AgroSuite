@@ -32,6 +32,7 @@ OPERATIONS = (
     "vigor",         # vegetation index / Augmenta
     "soil",          # soil sampling
     "elevation",     # elevation raster (DEM), for the terrain analyser
+    "telemetry",     # machine telemetry: engine CAN bus and GPS (SoMat)
     "unknown",
 )
 
@@ -45,6 +46,7 @@ OPERATION_LABELS = {
     "vigor": "Vigour / vegetation index",
     "soil": "Soil sampling",
     "elevation": "Elevation (DEM)",
+    "telemetry": "Machine telemetry",
     "unknown": "Not identified",
 }
 

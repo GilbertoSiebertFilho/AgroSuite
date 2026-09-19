@@ -39,6 +39,9 @@ const App = {
     terrainProbing: null,
     terrainDraw: null,   // a profile line being clicked out on the map
     terrainOnMap: false, // the relief owns the map: the points would cover it
+    machine: null,       // the machine analysis on screen: {id, summary, layers, stats}
+    machineOnMap: false, // the day's path owns the map on the Machine tab
+    machineForm: null,   // the Machine tab's settings, metric, kept across redraws
   },
 
   /* ---------------------------------------------------------------- API */
@@ -235,6 +238,10 @@ const App = {
     }
     // The relief analysis and the refusals belong to their datasets too: a
     // file removed from the session takes its relief off the map with it.
+    if (this.state.machine && !alive.has(this.state.machine.id)) {
+      this.state.machine = null;
+      this.leaveMachineMap();
+    }
     if (this.state.terrain && !alive.has(this.state.terrain.id)) {
       this.state.terrain = null;
       this.leaveTerrainMap();
@@ -314,6 +321,7 @@ const App = {
     // The Terrain tab has the map: the point canvas is drawn over it, so
     // painting the points now would hide the relief the tab is about.
     if (this.state.terrainOnMap) return;
+    if (this.state.machineOnMap) return;
     const column = this.state.colorColumn;
     const payload = await this.api(
       `/api/datasets/${this.state.selectedId}/map?column=${encodeURIComponent(column)}`
@@ -485,6 +493,9 @@ const App = {
     }
     if (name === "draw") { this.goToTab("ensaio"); this.startDrawing(); return; }
     if (name === "demo-terrain") { document.getElementById("btn-demo-terrain").click(); return; }
+    if (name === "demo-machine") { await this.loadMachineDemo(); return; }
+    if (name === "machine-export") { this.goToTab("machine"); await this.exportMachine(button); return; }
+    if (name === "machine-stats") { this.goToTab("machine"); this.machineStatsDownload(); return; }
     // The relief's two products are made on the Terrain tab itself, so these
     // lead to the control rather than to another tab; pressed before there is
     // an analysis, they say what would fill them.
@@ -587,9 +598,14 @@ const App = {
     if (this.state.terrainOnMap && (this.state.tab !== "terrain" || !this.terrainAnalysis())) {
       this.leaveTerrainMap();
     }
+    // The day's path likewise belongs to the Machine tab and its log.
+    if (this.state.machineOnMap && (this.state.tab !== "machine" || !this.machineAnalysis())) {
+      this.leaveMachineMap();
+    }
     const renderers = {
       dados: () => this.tabDados(panel),
       terrain: () => this.tabTerrain(panel),
+      machine: () => this.tabMachine(panel),
       limpeza: () => this.tabLimpeza(panel),
       difm: () => this.tabDifm(panel),
       ensaio: () => this.tabEnsaio(panel),
@@ -1619,6 +1635,7 @@ Object.assign(App, {
       }
     }
     await this.refreshTerrainPhrasing();
+    await this.refreshMachinePhrasing();
     this.renderTab();
   },
 
@@ -2563,6 +2580,627 @@ Object.assign(App, {
       `${result.filename}: ${result.files.length} file(s).\nSaved at ${result.path}`);
   },
 
+});
+
+/* ====================================================================
+ * Machine
+ *
+ * A machine's day, read from the logger that rode on it — a SoMat eDAQ
+ * log (.sie): where the time, the fuel and the DEF went, split between
+ * field work, standing with the engine running and the road, and the crop
+ * its tyres crossed inside the field. The tyres, the track width and the
+ * DEF tank belong to the machine, so they come from its profile.
+ *
+ * The analysis speaks metric, like every other; the form and the tables
+ * convert, and the findings come back from the server already written in
+ * the units on screen.
+ * ==================================================================== */
+
+Object.assign(App, {
+  MACHINE_LAYERS: ["machine-boundary", "machine-strips", "machine-track", "machine-stops"],
+
+  /* Field work green, the road slate, standing orange — the one that costs
+   * fuel for nothing — and the engine off black. */
+  MACHINE_COLOURS: { field: "#2e7d32", road: "#546e7a", idle: "#e65100", off: "#212121" },
+
+  MACHINE_SELECTIONS: [["all", "Whole log"], ["field", "Working in the field"],
+    ["idle", "Stopped, engine running"], ["road", "On the road"], ["off", "Engine off"]],
+
+  machineLogs() {
+    return this.state.datasets.filter((d) => d.meta?.operation === "telemetry");
+  },
+  machineBoundaries() {
+    return this.state.datasets.filter((d) =>
+      d.meta?.operation === "boundary" || d.role === "boundary");
+  },
+  machineYieldMaps() {
+    return this.state.datasets.filter((d) => d.meta?.operation === "harvest");
+  },
+
+  machineAnalysis() {
+    const analysis = this.state.machine;
+    return analysis && analysis.id === this.state.selectedId ? analysis : null;
+  },
+
+  /* ---------------------------------------------------------- the tab */
+
+  tabMachine(panel) {
+    const d = this.state.selected;
+    const logs = this.machineLogs();
+    if (!d || d.meta?.operation !== "telemetry") {
+      if (logs.length) {
+        panel.innerHTML = this.missingPanel(
+          "Machine",
+          d ? `'${d.label}' is not a machine log. This tab reads the telemetry a logger `
+              + "recorded on the machine — fuel, DEF, engine and its own GPS."
+            : "A machine log is loaded; pick it to read its day.",
+          { cta: `pick:${logs[0].id}`, label: `Show ${logs[0].label}` });
+      } else {
+        panel.innerHTML = this.missingPanel(
+          "Machine",
+          "Nothing to read yet. This tab takes the log a SoMat eDAQ logger records on the "
+          + "machine and says where the day went — field work, standing with the engine "
+          + "running, the road — with the diesel and the DEF of each, and the crop the "
+          + "tyres crossed inside the field.",
+          { cta: "load", label: "Open a SoMat log (.sie)",
+            hint: "Copy the .sie off the logger as it is. Load the field's boundary too: "
+                  + "it is what tells the field from the road." })
+          + this.machineDemoPanel();
+      }
+      return;
+    }
+
+    const analysis = this.machineAnalysis();
+    if (!analysis) {
+      panel.innerHTML = this.machineRunPanel() + this.machineProducesPanel();
+      this.bindMachineRun();
+      this.restoreMachineReport(d);
+      return;
+    }
+    const s = analysis.summary;
+    panel.innerHTML =
+      this.machineFindingsPanel(s) +
+      this.machineDayPanel(s) +
+      this.machineTramplingPanel(s) +
+      this.machineMapPanel(analysis) +
+      this.machineEnginePanel(s) +
+      this.machineRunPanel() +
+      this.machineStatsPanel(analysis) +
+      this.machineProducesPanel();
+    this.bindMachineRun();
+    this.bindMachineResults();
+    this.drawMachineMap();
+  },
+
+  machineDemoPanel() {
+    return `
+      <div class="panel">
+        <h3>Or try it on a made-up day</h3>
+        <p class="hint tight">A sprayer's day written as a real SoMat log — filling in the yard,
+          the road out, a field sprayed in passes with a stop half way, the road back —
+          with its field's boundary. Every awkward habit of the real logger is in it.</p>
+        <button class="wide" data-cta="demo-machine">Load the machine demo</button>
+      </div>`;
+  },
+
+  machineProducesPanel() {
+    return this.producesPanel([
+      { label: "Export the day for QGIS", cta: "machine-export",
+        hint: "The path by activity, the stops and the tyre strips as shapefiles, every "
+              + "sample with its activity as a table, the channel statistics and a README." },
+      { label: "Download the channel statistics (CSV)", cta: "machine-stats",
+        hint: "Min, max with their times, mean, median, RMS, standard deviation, skewness, "
+              + "kurtosis and crest factor per channel — the way InField reports them." },
+    ], "Reading the day and stopping there is a complete use of the app.");
+  },
+
+  /* --------------------------------------------------------- the form */
+
+  /* What the form holds survives a redraw — a tab switch, a unit change —
+   * as the metric values behind it, so a change of units converts rather
+   * than loses what was typed. */
+  machineForm() {
+    const form = (this.state.machineForm = this.state.machineForm || {
+      boom_width_m: null, tyre_size: "", track_width_m: null, rear_follows_front: true,
+      def_tank_l: null, boundary_id: null, yield_id: "", yield_kg_ha: null,
+      loss_pct: 100, fuel_price_per_l: null, def_price_per_l: null, crop_price_per_kg: null,
+    });
+    if (form.boundary_id === null) {
+      // The first boundary loaded is the one meant, nearly always.
+      form.boundary_id = this.machineBoundaries()[0]?.id || "";
+    }
+    return form;
+  },
+
+  machineRunPanel() {
+    const f = this.machineForm();
+    const len = Units.label.length();
+    const liquid = Units.label.liquid();
+    const money = Units.currencySymbol();
+    const shown = (kind, v, d = 3) => (v == null ? "" : Number(Units.convert[kind](v).toFixed(d)));
+    const perLiquid = (perL) => (perL == null ? ""
+      : Number((perL * Units.factor("liquid", Units.get().liquid_unit)).toFixed(3)));
+    const cropPrice = f.crop_price_per_kg == null ? ""
+      : Number(Units.priceFromInternal(f.crop_price_per_kg, Units.get().yield_unit).toFixed(3));
+    const boundaries = [["", "— none: tell field from road by speed —"],
+      ...this.machineBoundaries().map((d) => [d.id, d.label])];
+    const yields = [["", "— type the yield below —"],
+      ...this.machineYieldMaps().map((d) => [d.id, `Yield map: ${d.label}`])];
+    const analysed = !!this.machineAnalysis();
+    return `
+      <div class="panel">
+        <h3>${analysed ? "Run it again" : "The machine"}</h3>
+        ${this.machinePicker("machine")}
+        <div class="row tight">
+          ${this.field(`Boom width (${len})`, this.numberInput("m-boom", shown("length", f.boom_width_m)),
+            "The ground worked per metre travelled.")}
+          ${this.field(`Track width (${len})`, this.numberInput("m-track", shown("length", f.track_width_m)),
+            "Centre to centre of the left and right wheels.")}
+        </div>
+        <div class="row tight">
+          ${this.field("Tyre size", `<input type="text" id="m-tyre" placeholder="380/90R46"
+            value="${this.escape(f.tyre_size || "")}">`, "As on the sidewall, or a width: 380 mm.")}
+          ${this.field(`DEF tank (${liquid})`, this.numberInput("m-def-tank", shown("liquid", f.def_tank_l, 1)),
+            "Turns the gauge's drop into litres.")}
+        </div>
+        <label class="inline" style="margin:4px 0 8px">
+          <input type="checkbox" id="m-rear" ${f.rear_follows_front ? "checked" : ""}>
+          <span>Rear wheels run in the front ones' tracks</span></label>
+        ${this.field("Field boundary", this.selectInput("m-boundary", boundaries, f.boundary_id || ""),
+          "Inside is field work, outside is road. Without one, speed decides.")}
+        <h4>The crop under the tyres</h4>
+        ${this.field("Yield", this.selectInput("m-yield-source", yields, f.yield_id || ""))}
+        <div class="row tight" id="m-yield-typed" ${f.yield_id ? "hidden" : ""}>
+          ${this.field(`Yield (${Units.label.yield()})`, this.numberInput("m-yield", shown("yield", f.yield_kg_ha, 1)))}
+          ${this.field(`Crop price (${money} / ${Units.rateNumerator(Units.get().yield_unit)})`,
+            this.numberInput("m-crop-price", cropPrice),
+            "Empty: the price on the Economics tab.")}
+        </div>
+        ${this.field("Crop lost under the tyre (%)", this.numberInput("m-loss", f.loss_pct, "any", 0),
+          "100 % late in the season — a pre-harvest pass; less for an early one the crop grows back from.")}
+        <h4>Prices</h4>
+        <div class="row tight">
+          ${this.field(`Diesel (${money} / ${liquid})`, this.numberInput("m-fuel-price", perLiquid(f.fuel_price_per_l)))}
+          ${this.field(`DEF (${money} / ${liquid})`, this.numberInput("m-def-price", perLiquid(f.def_price_per_l)))}
+        </div>
+        <button class="primary wide" id="btn-machine-run" style="margin-top:8px">
+          ${analysed ? "Analyse again" : "Analyse the day"}</button>
+      </div>`;
+  },
+
+  /* The form read back in metric, and kept for the next redraw. */
+  collectMachineForm() {
+    const f = this.machineForm();
+    const metric = (kind, id) => this.machineFieldMetric(kind, id);
+    const liquidFactor = Units.factor("liquid", Units.get().liquid_unit);
+    const perL = (id) => { const v = this.number(id, null); return v == null ? null : v / liquidFactor; };
+    const cropPrice = this.number("m-crop-price", null);
+    Object.assign(f, {
+      boom_width_m: metric("length", "m-boom"),
+      track_width_m: metric("length", "m-track"),
+      tyre_size: (this.value("m-tyre") || "").trim(),
+      rear_follows_front: this.checked("m-rear"),
+      def_tank_l: metric("liquid", "m-def-tank"),
+      boundary_id: this.value("m-boundary") || "",
+      yield_id: this.value("m-yield-source") || "",
+      yield_kg_ha: Units.toInternal.yield(this.number("m-yield", null)),
+      loss_pct: this.number("m-loss", 100),
+      fuel_price_per_l: perL("m-fuel-price"),
+      def_price_per_l: perL("m-def-price"),
+      crop_price_per_kg: cropPrice == null ? null
+        : Units.priceToInternal(cropPrice, Units.get().yield_unit),
+    });
+    return f;
+  },
+
+  bindMachineRun() {
+    this.bindMachinePicker("machine");
+    document.getElementById("m-yield-source")?.addEventListener("change", (event) => {
+      document.getElementById("m-yield-typed").hidden = !!event.target.value;
+    });
+    document.getElementById("btn-machine-run")?.addEventListener("click", (event) =>
+      this.runMachine(event.currentTarget));
+  },
+
+  async runMachine(button) {
+    const id = this.state.selectedId;
+    const f = this.collectMachineForm();
+    const body = { dataset_id: id, rear_follows_front: f.rear_follows_front,
+                   loss_fraction: (f.loss_pct ?? 100) / 100 };
+    const put = (key, value) => { if (value != null && value !== "") body[key] = value; };
+    put("boom_width_m", f.boom_width_m);
+    put("track_width_m", f.track_width_m);
+    put("tyre_size", f.tyre_size);
+    put("def_tank_l", f.def_tank_l);
+    put("boundary_id", f.boundary_id);
+    put("yield_id", f.yield_id);
+    if (!f.yield_id) put("yield_kg_ha", f.yield_kg_ha);
+    put("fuel_price", f.fuel_price_per_l);
+    put("def_price", f.def_price_per_l);
+    put("crop_price_per_kg", f.crop_price_per_kg);
+    const result = await this.busy(button, () =>
+      this.api("/api/machine/analyze", { method: "POST", body }));
+    if (!result || this.state.selectedId !== id) return;
+    this.state.machine = { id, summary: result.summary, layers: result.layers,
+                           selection: "all", stats: null };
+    this.state.machineFitted = null;
+    this.renderTab();
+  },
+
+  /* A saved analysis — a reopened project — comes back with its findings;
+   * its map layers are rebuilt only by running it again. */
+  async restoreMachineReport(d) {
+    if (this.state.machineRestoring === d.id) return;
+    this.state.machineRestoring = d.id;
+    const saved = await this.api(`/api/machine/${d.id}`).catch(() => null);
+    this.state.machineRestoring = null;
+    if (!saved || this.state.selectedId !== d.id || this.state.tab !== "machine") return;
+    this.state.machine = { id: d.id, summary: saved.summary, layers: saved.layers,
+                           selection: "all", stats: null };
+    this.renderTab();
+  },
+
+  async refreshMachinePhrasing() {
+    const analysis = this.machineAnalysis();
+    if (!analysis) return;
+    const saved = await this.api(`/api/machine/${analysis.id}`).catch(() => null);
+    if (saved?.summary && this.machineAnalysis() === analysis) analysis.summary = saved.summary;
+  },
+
+  /* ------------------------------------------------------- the results */
+
+  machineDuration(seconds) {
+    if (seconds == null) return "—";
+    const total = Math.round(seconds);
+    if (total < 60) return `${total} s`;
+    const minutes = Math.round(total / 60);
+    const h = Math.floor(minutes / 60), m = minutes % 60;
+    if (!h) return `${m} min`;
+    return m ? `${h} h ${m} min` : `${h} h`;
+  },
+
+  machineUnits() {
+    const liquid = Units.label.liquid();
+    const liquidOf = (litres, d) => (litres == null ? "—"
+      : `${Units.num(Units.convert.liquid(litres), d)} ${liquid}`);
+    return {
+      liquid: liquidOf,
+      perHour: (lh) => (lh == null ? "—" : `${Units.num(Units.convert.liquid(lh), 1)} ${liquid}/h`),
+      distance: (m) => (m == null ? "—"
+        : `${Units.num(Units.convert.distance(m / 1000), 1)} ${Units.label.distance()}`),
+      perArea: (lha) => (lha == null ? "—"
+        : `${Units.num(Units.convert.liquid(lha) * Units.factor("area", Units.get().area_unit), 2)} `
+          + `${liquid}/${Units.label.area()}`),
+      area: (ha, d = 2) => (ha == null ? "—" : `${Units.num(Units.convert.area(ha), d)} ${Units.label.area()}`),
+      speed: (kmh) => (kmh == null ? "—" : `${Units.num(Units.convert.speed(kmh), 1)} ${Units.label.speed()}`),
+      pct: (share, d = 0) => (share == null ? "—" : `${Units.num(share * 100, d)} %`),
+    };
+  },
+
+  machineFindingsPanel(s) {
+    const findings = s.findings || [];
+    const noteClass = { ok: "ok", warning: "warning" };
+    return `
+      <div class="panel">
+        <h3>${this.escape(s.name || "The machine's day")}</h3>
+        ${findings.length ? findings.map((f) => `
+          <div class="note ${noteClass[f.level] || ""}" style="margin-bottom:6px">
+            ${this.escape(f.text)}</div>`).join("")
+          : '<div class="empty">The analysis produced no findings.</div>'}
+      </div>`;
+  },
+
+  machineDayPanel(s) {
+    const u = this.machineUnits();
+    const rows = s.activities || [];
+    const swatch = (key) => `<span class="swatch" style="background:${this.MACHINE_COLOURS[key]}"></span>`;
+    const total = {
+      time_s: rows.reduce((a, r) => a + (r.time_s || 0), 0),
+      distance_m: s.distance_m, fuel_l: s.fuel?.total_l,
+    };
+    const def = s.def || {};
+    const offRow = rows.find((r) => r.key === "off");
+    const t = s.trampling || {};
+    const stat = (k, v, d = "") => `<div class="stat"><div class="k">${k}</div>
+      <div class="v">${v}</div><div class="d">${d}</div></div>`;
+    return `
+      <div class="panel">
+        <h3>Where the day went</h3>
+        <div class="stat-grid" style="margin-bottom:10px">
+          ${stat("Logged", this.machineDuration(s.span?.duration_s),
+            `${this.escape((s.span?.start || "").slice(11, 16))} – ${this.escape((s.span?.end || "").slice(11, 16))}`)}
+          ${stat("Engine running", this.machineDuration(s.span?.engine_on_s),
+            offRow ? `${this.machineDuration(offRow.time_s)} off` : "")}
+          ${stat("Travelled", u.distance(s.distance_m), "")}
+          ${stat("Diesel", u.liquid(s.fuel?.total_l), s.fuel?.cost != null ? Units.money(s.fuel.cost, 0) : "")}
+          ${def.available ? stat("DEF", def.litres != null ? u.liquid(def.litres, 2)
+            : `${Units.num(def.drop_pct, 1)} pts`, def.share_of_fuel != null
+            ? `${Units.num(def.share_of_fuel * 100, 1)} % of the diesel` : "of the tank") : ""}
+          ${t.available ? stat("Crop crushed", u.area(t.area_ha),
+            t.share_of_field != null ? `${u.pct(t.share_of_field, 1)} of the field` : "") : ""}
+        </div>
+        <div class="scroll-x"><table class="data">
+          <thead><tr><th>Activity</th><th>Time</th><th>Distance</th><th>Diesel</th><th>Per hour</th></tr></thead>
+          <tbody>${rows.map((r) => `
+            <tr><td>${swatch(r.key)}${this.escape(r.label)}</td>
+              <td>${this.machineDuration(r.time_s)}${r.share_engine_time != null
+                ? ` <span class="muted">(${u.pct(r.share_engine_time)})</span>` : ""}</td>
+              <td>${r.key === "idle" || r.key === "off" ? "—" : u.distance(r.distance_m)}</td>
+              <td>${r.key === "off" ? "—" : u.liquid(r.fuel_l)}</td>
+              <td>${r.key === "off" ? "—" : u.perHour(r.fuel_lh)}</td></tr>`).join("")}
+            <tr class="total"><td>Whole log</td><td>${this.machineDuration(total.time_s)}</td>
+              <td>${u.distance(total.distance_m)}</td><td>${u.liquid(total.fuel_l)}</td><td></td></tr>
+          </tbody>
+        </table></div>
+        <p class="hint tight">Shares are of the time with the engine running.
+          ${s.basis === "boundary" ? `Field and road told apart by the boundary '${
+            this.escape(s.boundary?.label || "")}'.` : "No boundary: field and road told apart by speed."}</p>
+        <div class="scroll-x" style="margin-top:8px"><table class="data"><tbody>
+          ${s.fuel?.per_ha_field != null ? `<tr><td>Diesel per ${Units.label.area()} worked</td>
+            <td>${u.perArea(s.fuel.per_ha_field)} <span class="muted">(${u.perArea(s.fuel.per_ha_all)} with road and stops,
+            over ${u.area(s.area?.covered_ha, 1)} covered)</span></td></tr>` : ""}
+          ${s.fuel?.road_l_per_km != null ? `<tr><td>Diesel on the road</td>
+            <td>${Units.num(Units.convert.liquid(s.fuel.road_l_per_km) / Units.convert.distance(1), 2)}
+              ${Units.label.liquid()}/${Units.label.distance()}</td></tr>` : ""}
+          ${s.fuel?.cost != null ? `<tr><td>Diesel cost</td><td>${Units.money(s.fuel.cost, 0)}</td></tr>` : ""}
+          ${def.available ? `<tr><td>DEF</td><td>${Units.num(def.start_pct, 0)} % → ${
+            Units.num(def.end_pct, 0)} % of the tank${def.litres != null
+              ? ` · ${u.liquid(def.litres, 2)}${def.share_of_fuel != null
+                ? ` · ${Units.num(def.share_of_fuel * 100, 1)} % of the diesel` : ""}` : ""}${
+              def.cost != null ? ` · ${Units.money(def.cost)}` : ""}</td></tr>` : ""}
+        </tbody></table></div>
+      </div>`;
+  },
+
+  machineTramplingPanel(s) {
+    const t = s.trampling || {};
+    if (!t.available) {
+      return `
+        <div class="panel"><h3>The crop under the tyres</h3>
+          <div class="note">${this.escape((t.problems || []).join(" ")
+            || "Give the tyre size and the track width to draw the strips.")}</div>
+        </div>`;
+    }
+    const u = this.machineUnits();
+    const len = (m) => `${Units.num(Units.convert.length(m), 2)} ${Units.label.length()}`;
+    const massUnit = Units.label.mass ? Units.label.mass() : "kg";
+    const mass = (kg) => (kg == null ? "—" : `${Units.num(Units.convert.mass(kg), 0)} ${massUnit}`);
+    const yieldOf = (kgha) => (kgha == null ? "—" : Units.show(kgha, "yield", 1));
+    return `
+      <div class="panel">
+        <h3>The crop under the tyres</h3>
+        <div class="scroll-x"><table class="data"><tbody>
+          <tr><td>Tyres</td><td>${this.escape(t.tyre_size || len(t.tyre_width_m))} · track ${len(t.track_width_m)}
+            · ${t.strips} strips per pass</td></tr>
+          <tr><td>Crossed inside the field</td><td><b>${u.area(t.area_ha)}</b>${t.share_of_field != null
+            ? ` — <b>${u.pct(t.share_of_field, 1)}</b> of ${u.area(t.field_area_ha, 1)}` : ""}</td></tr>
+          <tr><td>If every metre were fresh crop</td><td>${u.area(t.linear_area_ha)}
+            <span class="muted">(${u.pct(t.driven_again_share)} driven again)</span></td></tr>
+          <tr><td>Yield</td><td>${yieldOf(t.yield_kg_ha)}${t.yield_source
+            ? ` <span class="muted">(${this.escape(t.yield_source === "typed" ? "typed" : t.yield_source)})</span>` : ""}</td></tr>
+          <tr><td>Lost under the tyre</td><td>${Units.num(t.loss_fraction * 100, 0)} %</td></tr>
+          ${t.lost_kg != null ? `<tr><td>Crop lost</td><td><b>${mass(t.lost_kg)}</b>${
+            t.lost_kg_per_field_ha != null ? ` · ${yieldOf(t.lost_kg_per_field_ha)} over the field` : ""}${
+            t.lost_value != null ? ` · <b>${Units.money(t.lost_value, 0)}</b>` : ""}</td></tr>` : ""}
+        </tbody></table></div>
+        <p class="hint tight">Drawn from the logger's GPS, which has no RTK correction: where the
+          machine drove its own tracks again a metre off, the strips count fresh crop — the area is
+          an upper bound on the ground crushed.</p>
+      </div>`;
+  },
+
+  /* Four layers, each switched on its own: at the zoom a field fits the
+   * screen a tyre strip is under a pixel wide and the path covers it, so the
+   * strips can be looked at alone. */
+  machineMapPanel(analysis) {
+    const shown = (analysis.shown = analysis.shown
+      || { track: true, stops: true, strips: true, boundary: true });
+    const box = (key, label, hint) => `
+      <label class="inline" style="margin-bottom:4px">
+        <input type="checkbox" data-machine-layer="${key}" ${shown[key] ? "checked" : ""}>
+        <span>${label}${hint ? ` <span class="muted">— ${hint}</span>` : ""}</span></label>`;
+    return `
+      <div class="panel">
+        <h3>On the map</h3>
+        ${box("track", "The path by activity", "field green, road grey")}
+        ${box("stops", "The stops", "orange with the engine running, black off")}
+        ${box("strips", "The tyre strips", "brown; zoom in, they are a tyre wide")}
+        ${box("boundary", "The field boundary")}
+      </div>`;
+  },
+
+  machineEnginePanel(s) {
+    const e = s.engine || {};
+    const cell = (x, d = 0, unit = "") => (x == null ? "—" : `${Units.num(x, d)}${unit}`);
+    const row = (label, spread, d, unit) => (spread ? `<tr><td>${label}</td>
+      <td>${cell(spread.median, d, unit)}</td><td>${cell(spread.p95, d, unit)}</td>
+      <td>${cell(spread.max, d, unit)}</td></tr>` : "");
+    const u = this.machineUnits();
+    const speed = s.speed || {};
+    return `
+      <div class="panel">
+        <h3>Engine and speed</h3>
+        <div class="scroll-x"><table class="data">
+          <thead><tr><th></th><th>Median</th><th>95th pct.</th><th>Max</th></tr></thead>
+          <tbody>
+            ${row("Engine speed", e.rpm, 0, " rpm")}
+            ${row("Engine load", e.load, 0, " %")}
+            ${row("Coolant", e.coolant, 0, " °C")}
+            ${row("Battery", e.battery, 1, " V")}
+          </tbody>
+        </table></div>
+        <div class="scroll-x" style="margin-top:8px"><table class="data"><tbody>
+          ${speed.field ? `<tr><td>Working speed</td><td>${u.speed(speed.field.median)}${
+            u.speed(speed.field.p10) !== u.speed(speed.field.p90)
+              ? ` <span class="muted">(${u.speed(speed.field.p10)} – ${u.speed(speed.field.p90)})</span>` : ""}</td></tr>` : ""}
+          ${speed.road ? `<tr><td>Top speed on the road</td><td>${u.speed(speed.road.max)}</td></tr>` : ""}
+          ${e.time_over_90_load_s ? `<tr><td>Load at 90 % or more</td><td>${
+            this.machineDuration(e.time_over_90_load_s)}</td></tr>` : ""}
+          ${e.hour_meter_h != null ? `<tr><td>Hour meter</td><td>+${Units.num(e.hour_meter_h, 2)} h
+            <span class="muted">(${this.machineDuration(s.span?.engine_on_s)} logged running)</span></td></tr>` : ""}
+          ${s.gps?.satellites_median != null ? `<tr><td>GPS</td><td>${Units.num(s.gps.satellites_median, 0)}
+            satellites (least ${Units.num(s.gps.satellites_min, 0)})</td></tr>` : ""}
+        </tbody></table></div>
+      </div>`;
+  },
+
+  machineStatsPanel(analysis) {
+    const selection = analysis.selection || "all";
+    const rows = (analysis.stats || []).filter((r) => r.selection === selection);
+    const labels = this.state.catalog.columns;
+    const n = (v) => Units.num(v, Math.abs(v) >= 100 ? 0 : 2);
+    return `
+      <div class="panel">
+        <h3>Channel statistics</h3>
+        ${this.field("For", this.selectInput("m-stats-selection", this.MACHINE_SELECTIONS, selection))}
+        ${analysis.stats == null ? `<button class="wide" id="btn-machine-stats-load">Show the table</button>`
+          : rows.length ? `
+        <div class="table-scroll"><div class="scroll-x"><table class="data">
+          <thead><tr><th>Channel</th><th>Unit</th><th>Min</th><th>Mean</th><th>Median</th>
+            <th>Max</th><th>Std</th><th>RMS</th></tr></thead>
+          <tbody>${rows.map((r) => `<tr>
+            <td>${this.escape(labels[r.channel] || r.channel)}</td><td>${this.escape(r.unit)}</td>
+            <td title="at ${this.escape(r.t_min)}">${n(r.min)}</td><td>${n(r.mean)}</td>
+            <td>${n(r.median)}</td><td title="at ${this.escape(r.t_max)}">${n(r.max)}</td>
+            <td>${n(r.std)}</td><td>${n(r.rms)}</td></tr>`).join("")}</tbody>
+        </table></div>
+        <p class="hint tight">Stored units, as the logger's channels are read: the table is the
+          one to compare with InField. The CSV adds the times, skewness, kurtosis and crest factor.</p>`
+          : `<div class="note">No sample in this activity.</div>`}
+      </div>`;
+  },
+
+  bindMachineResults() {
+    const analysis = this.machineAnalysis();
+    for (const box of document.querySelectorAll("[data-machine-layer]")) {
+      box.addEventListener("change", () => {
+        analysis.shown[box.dataset.machineLayer] = box.checked;
+        this.drawMachineMap();
+      });
+    }
+    document.getElementById("m-stats-selection")?.addEventListener("change", (event) => {
+      analysis.selection = event.target.value;
+      this.renderTab();
+    });
+    document.getElementById("btn-machine-stats-load")?.addEventListener("click", async (event) => {
+      const result = await this.busy(event.currentTarget, () =>
+        this.api(`/api/machine/${analysis.id}/statistics`));
+      if (!result || this.machineAnalysis() !== analysis) return;
+      analysis.stats = result.rows;
+      this.renderTab();
+    });
+  },
+
+  /* ------------------------------------------------------------- the map */
+
+  drawMachineMap() {
+    const analysis = this.machineAnalysis();
+    const layers = analysis?.layers;
+    if (!layers) { this.leaveMachineMap(); return; }
+    this.state.machineOnMap = true;
+    MapView.clearPoints();
+    MapView.clearOverlays();
+    // The points' colour scale goes with the points; the colours on the map
+    // now are the activities, named in the table beside it.
+    document.getElementById("legend").hidden = true;
+    const u = this.machineUnits();
+    const shown = analysis.shown || { track: true, stops: true, strips: true, boundary: true };
+    for (const name of this.MACHINE_LAYERS) MapView.clearGeoJson(name);
+    const boundary = this.state.datasets.find((d) => d.id === analysis.summary.boundary?.id);
+    if (shown.boundary && boundary?.bounds) {
+      this.api(`/api/datasets/${boundary.id}/map?column=value`).then((payload) => {
+        if (!payload?.polygons?.length || this.machineAnalysis() !== analysis
+            || !analysis.shown?.boundary) return;
+        MapView.setGeoJson("machine-boundary", {
+          type: "FeatureCollection",
+          features: payload.polygons.map((ring) => ({
+            type: "Feature", properties: {},
+            geometry: { type: "Polygon", coordinates: [ring] },
+          })),
+        }, { style: () => ({ color: "#1b5e20", weight: 2, fill: false, dashArray: "6 4" }) });
+      }).catch(() => null);
+    }
+    if (shown.track) {
+      MapView.setGeoJson("machine-track", layers.track, {
+        style: (p) => ({ color: this.MACHINE_COLOURS[p.activity] || "#555",
+                         weight: p.activity === "road" ? 3 : 2, opacity: 0.85 }),
+        popup: (p) => `<b>${this.escape(p.label)}</b><br>${this.escape((p.start || "").slice(11))} – ${
+          this.escape((p.end || "").slice(11))} · ${this.machineDuration(p.duration_s)}<br>${
+          u.distance(p.distance_m)} · ${u.liquid(p.fuel_l, 2)}`,
+      });
+    }
+    if (shown.strips) {
+      MapView.setGeoJson("machine-strips", layers.strips, {
+        style: () => ({ color: "#6d4c41", weight: 0, fillColor: "#6d4c41", fillOpacity: 0.9 }),
+        tooltip: (p) => `Crushed: ${u.area(p.area_ha)}`,
+      });
+    }
+    if (shown.stops) {
+      MapView.setGeoJson("machine-stops", layers.stops, {
+        style: (p) => ({
+          color: this.MACHINE_COLOURS[p.activity] || "#555", weight: 1,
+          fillColor: this.MACHINE_COLOURS[p.activity] || "#555", fillOpacity: 0.8,
+          radius: Math.max(4, Math.min(14, 3 + Math.sqrt(p.duration_s / 30))),
+        }),
+        popup: (p) => `<b>${this.escape(p.label)}</b><br>${this.escape((p.start || "").slice(11))} – ${
+          this.escape((p.end || "").slice(11))} · ${this.machineDuration(p.duration_s)}${
+          p.activity === "idle" ? `<br>${u.liquid(p.fuel_l, 2)} burnt standing` : ""}`,
+      });
+    }
+    document.getElementById("map-status").textContent =
+      "The day by activity: field green, road grey, stops orange; the tyre strips brown.";
+    if (this.state.machineFitted !== analysis.id && this.state.selected?.bounds) {
+      MapView.fit(this.state.selected.bounds);
+      this.state.machineFitted = analysis.id;
+    }
+  },
+
+  leaveMachineMap() {
+    if (!this.state.machineOnMap) return;
+    this.state.machineOnMap = false;
+    for (const name of this.MACHINE_LAYERS) MapView.clearGeoJson(name);
+    this.loadMap();
+  },
+
+  /* ---------------------------------------------------------- products */
+
+  async exportMachine(button) {
+    const analysis = this.machineAnalysis();
+    if (!analysis) {
+      this.toast("Nothing to export yet", "Run \"Analyse the day\" on this tab first.", "warn");
+      return;
+    }
+    const result = await this.busy(button, () =>
+      this.api(`/api/machine/${analysis.id}/export`, { method: "POST", body: {} }));
+    if (!result) return;
+    window.location.href = result.download_url;
+    this.toast("Exported", `${result.files.length} files, zipped. Also in ${result.path}`);
+  },
+
+  machineStatsDownload() {
+    const analysis = this.machineAnalysis();
+    if (!analysis) {
+      this.toast("Nothing to download yet", "Run \"Analyse the day\" on this tab first.", "warn");
+      return;
+    }
+    window.location.href = `/api/machine/${analysis.id}/statistics.csv`;
+  },
+
+  async loadMachineDemo() {
+    const result = await this.busy(document.querySelector("aside.left"), () =>
+      this.api("/api/machine/demo", { method: "POST" }));
+    if (!result) return;
+    await this.refreshDatasets();
+    const f = this.machineForm();
+    Object.assign(f, {
+      boom_width_m: result.suggested.boom_width_m, tyre_size: result.suggested.tyre_size,
+      track_width_m: result.suggested.track_width_m, def_tank_l: result.suggested.def_tank_l,
+      rear_follows_front: true, boundary_id: result.boundary.id,
+    });
+    this.state.tab = "machine";
+    await this.selectDataset(result.log.id);
+    this.goToTab("machine");
+  },
 });
 
 /* ======================================================================
@@ -4365,6 +5003,7 @@ Object.assign(App, {
 
     // The relief demo is a field, not an operation: it comes from the
     // terrain routes, which also carry the truth about what was put in it.
+    document.getElementById("btn-demo-machine").addEventListener("click", () => this.loadMachineDemo());
     document.getElementById("btn-demo-terrain").addEventListener("click", async () => {
       const result = await this.busy(document.querySelector("aside.left"), () =>
         this.api("/api/terrain/demo", { method: "POST" }));
@@ -4663,6 +5302,8 @@ Object.assign(App, {
       ${this.field("Length and width", this.selectInput("u-length", options("length"), prefs.length_unit))}
       ${this.field("Speed", this.selectInput("u-speed", options("speed"), prefs.speed_unit))}
       ${this.field("Mass", this.selectInput("u-mass", options("mass"), prefs.mass_unit))}
+      ${this.field("Fuel and DEF", this.selectInput("u-liquid", options("liquid"), prefs.liquid_unit))}
+      ${this.field("Distance travelled", this.selectInput("u-distance", options("distance"), prefs.distance_unit))}
       ${this.field("Crop (bushel weight)", this.selectInput("u-crop",
         this.state.units.crops.map((c) => [c.key, `${c.label} — ${c.bushel_kg.toFixed(2)} kg/bu`]),
         prefs.crop))}
@@ -4676,6 +5317,8 @@ Object.assign(App, {
       Units.set("length_unit", this.value("u-length"));
       Units.set("speed_unit", this.value("u-speed"));
       Units.set("mass_unit", this.value("u-mass"));
+      Units.set("liquid_unit", this.value("u-liquid"));
+      Units.set("distance_unit", this.value("u-distance"));
       Units.set("crop", this.value("u-crop"));
       Units.set("currency", this.value("u-currency"));
       this.loadMap();
@@ -4683,7 +5326,7 @@ Object.assign(App, {
       this.refreshPhrasing();
     };
     for (const id of ["u-yield", "u-input", "u-area", "u-length", "u-speed", "u-mass",
-                      "u-crop", "u-currency"]) {
+                      "u-liquid", "u-distance", "u-crop", "u-currency"]) {
       document.getElementById(id).addEventListener("change", apply);
     }
     document.getElementById("dlg-units").showModal();
@@ -4859,7 +5502,7 @@ Object.assign(App, {
     const tab = {
       load: "dados", review: "dados", units: "dados", columns: "dados",
       clean: "limpeza", design: "ensaio", analyse: "difm", augmenta: "dados",
-      terrain: "terrain", export: "exportar",
+      terrain: "terrain", machine: "machine", export: "exportar",
     }[step] || "dados";
     this.goToTab(tab);
   },
@@ -5085,6 +5728,38 @@ Object.assign(App, {
           passes_per_strip: this.number("design-passes", 2),
         }),
       },
+      machine: {
+        hint: "A saved machine fills the boom, the tyres, the track width and the DEF tank.",
+        kind: () => "sprayer",
+        fill: (p) => {
+          const width = shown("length", p.implement_width_m);
+          const track = shown("length", p.track_width_m);
+          const tank = shown("liquid", p.def_tank_l);
+          put("m-boom", p.implement_width_m ? width : "");
+          put("m-track", p.track_width_m ? track : "");
+          put("m-tyre", p.tyre_size || "");
+          put("m-def-tank", p.def_tank_l ? tank : "");
+          const rear = document.getElementById("m-rear");
+          if (rear) rear.checked = p.rear_follows_front !== false;
+          this.machinePlaced("m-boom", width, p.implement_width_m || null);
+          this.machinePlaced("m-track", track, p.track_width_m || null);
+          this.machinePlaced("m-def-tank", tank, p.def_tank_l || null);
+          const missing = [!p.tyre_size && "tyre size", !p.track_width_m && "track width"]
+            .filter(Boolean);
+          return `boom ${said(width)} ${Units.label.length()}` +
+            (p.tyre_size ? `, tyres ${p.tyre_size}` : "") +
+            (p.track_width_m ? `, track ${said(track)} ${Units.label.length()}` : "") +
+            (p.def_tank_l ? `, DEF tank ${said(tank)} ${Units.label.liquid()}` : "") + "." +
+            (missing.length ? ` The profile has no ${missing.join(" or ")} yet.` : "");
+        },
+        collect: () => ({
+          implement_width_m: metric("length", "m-boom"),
+          tyre_size: (this.value("m-tyre") || "").trim(),
+          track_width_m: metric("length", "m-track") ?? 0,
+          rear_follows_front: this.checked("m-rear"),
+          def_tank_l: metric("liquid", "m-def-tank") ?? 0,
+        }),
+      },
       package: {
         hint: "A saved machine picks the target monitor.",
         kind: (d) => kindFromOperation(d) || "other",
@@ -5290,7 +5965,10 @@ Object.assign(App, {
   /* "John Deere combine", or "My seeder" when the file does not say who made it. */
   machineNameFor(d, kind) {
     const brand = (d?.meta?.brand_label || "").trim();
-    const known = brand && !/^(desconhecido|unknown|generic)/i.test(brand) ? brand : "My";
+    // A telemetry log names the logger that recorded it, not the machine
+    // it rode on: "HBM SoMat sprayer" would be nobody's sprayer.
+    const known = brand && !/^(desconhecido|unknown|generic)/i.test(brand)
+      && d?.meta?.operation !== "telemetry" ? brand : "My";
     const word = kind === "other" ? "machine"
       : this.machineKindLabel(kind).split(" /")[0].toLowerCase();
     return `${known} ${word}`;
@@ -5354,6 +6032,10 @@ Object.assign(App, {
     this.machinePlaced("mp-width", width, p.implement_width_m || null);
     this.machinePlaced("mp-speed-min", low, p.speed_min_kmh);
     this.machinePlaced("mp-speed-max", high, p.speed_max_kmh);
+    const track = shown("length", p.track_width_m || null);
+    const tank = shown("liquid", p.def_tank_l || null);
+    this.machinePlaced("mp-track", track, p.track_width_m || null);
+    this.machinePlaced("mp-def-tank", tank, p.def_tank_l || null);
 
     document.querySelector("#dlg-machine h3").textContent =
       editing ? `Update '${editing}'` : "Save as a machine";
@@ -5383,6 +6065,21 @@ Object.assign(App, {
              step="any" min="0" placeholder="typical for the kind">`)}
         ${this.field("Passes per strip", this.numberInput("mp-passes", p.passes_per_strip, "1", "1"))}
       </div>
+      <h4>Tyres and DEF</h4>
+      <p class="hint tight">For the Machine tab: the strips a pass crushes and the DEF in litres.
+        Leave them empty for a machine that never drives through a standing crop.</p>
+      <div class="row tight">
+        ${this.field("Tyre size", `<input type="text" id="mp-tyre" value="${this.escape(p.tyre_size || "")}"
+           placeholder="380/90R46">`)}
+        ${this.field(`Track width (${lengthUnit})`,
+          `<input type="number" id="mp-track" value="${track}" step="any" min="0"
+             placeholder="centre to centre">`)}
+        ${this.field(`DEF tank (${Units.label.liquid()})`,
+          `<input type="number" id="mp-def-tank" value="${tank}" step="any" min="0">`)}
+      </div>
+      <label class="inline" style="margin-bottom:8px">
+        <input type="checkbox" id="mp-rear" ${p.rear_follows_front === false ? "" : "checked"}>
+        <span>Rear wheels run in the front ones' tracks</span></label>
       ${this.field("Notes", `<input type="text" id="mp-notes" value="${this.escape(p.notes)}">`)}
       <div id="mp-problems"></div>
       <p class="hint tight">Saved in <span style="font:11px var(--mono)">${
@@ -5451,6 +6148,10 @@ Object.assign(App, {
       speed_min_kmh: this.machineFieldMetric("speed", "mp-speed-min"),
       speed_max_kmh: this.machineFieldMetric("speed", "mp-speed-max"),
       notes: this.value("mp-notes") || "",
+      tyre_size: (this.value("mp-tyre") || "").trim(),
+      track_width_m: this.machineFieldMetric("length", "mp-track") ?? 0,
+      rear_follows_front: this.checked("mp-rear"),
+      def_tank_l: this.machineFieldMetric("liquid", "mp-def-tank") ?? 0,
       // Updating the machine that was picked is what the dialog opened for
       // and asks nothing; any other saved name is replaced only once the
       // person says so, below.

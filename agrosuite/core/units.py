@@ -245,6 +245,21 @@ LENGTH_UNITS = [
     {"key": "yd", "label": "yard (yd)",      "factor": 0.9144},
 ]
 
+#: Liquid volume — fuel and DEF (internal: L). A different quantity from the
+#: length cubed that the relief speaks in, hence its own group.
+LIQUID_UNITS = [
+    {"key": "L",       "label": "litre (L)",                  "factor": 1.0},
+    {"key": "gal",     "label": "US gallon (gal)",            "factor": 3.785411784},
+    {"key": "imp gal", "label": "imperial gallon (imp gal)",  "factor": 4.54609},
+]
+
+#: Distance travelled — a day on the road and in the field (internal: km).
+#: Separate from length, which is spoken in metres or feet for widths.
+DISTANCE_UNITS = [
+    {"key": "km", "label": "kilometre (km)", "factor": 1.0},
+    {"key": "mi", "label": "mile (mi)",      "factor": 1.609344},
+]
+
 #: Currencies — label only, no conversion between them.
 CURRENCIES = [
     {"key": "CAD", "label": "Canadian dollar (C$)", "symbol": "C$"},
@@ -261,6 +276,8 @@ UNIT_GROUPS = {
     "mass": {"label": "Mass", "internal": "kg", "units": MASS_UNITS},
     "speed": {"label": "Speed", "internal": "km/h", "units": SPEED_UNITS},
     "length": {"label": "Length", "internal": "m", "units": LENGTH_UNITS},
+    "liquid": {"label": "Fuel and DEF", "internal": "L", "units": LIQUID_UNITS},
+    "distance": {"label": "Distance travelled", "internal": "km", "units": DISTANCE_UNITS},
 }
 
 #: Crops with a known test weight, for the bushel-based units.
@@ -374,6 +391,8 @@ UNIT_PRESETS = {
         "count_rate_unit": "seeds/ac",
         "area_unit": "ac",
         "length_unit": "ft",
+        "liquid_unit": "L",
+        "distance_unit": "mi",
         "speed_unit": "mph",
         "mass_unit": "lb",
         "currency": "CAD",
@@ -389,6 +408,8 @@ UNIT_PRESETS = {
         "count_rate_unit": "seeds/ac",
         "area_unit": "ac",
         "length_unit": "ft",
+        "liquid_unit": "gal",
+        "distance_unit": "mi",
         "speed_unit": "mph",
         "mass_unit": "lb",
         "currency": "USD",
@@ -404,6 +425,8 @@ UNIT_PRESETS = {
         "count_rate_unit": "seeds/ha",
         "area_unit": "ha",
         "length_unit": "m",
+        "liquid_unit": "L",
+        "distance_unit": "km",
         "speed_unit": "km/h",
         "mass_unit": "kg",
         "currency": "BRL",
@@ -419,6 +442,8 @@ UNIT_PRESETS = {
         "count_rate_unit": "seeds/ha",
         "area_unit": "ha",
         "length_unit": "m",
+        "liquid_unit": "L",
+        "distance_unit": "km",
         "speed_unit": "km/h",
         "mass_unit": "kg",
         "currency": "EUR",
@@ -470,11 +495,13 @@ class Phrase:
     #: The metric store, which is what "no unit set" means.
     METRIC = {
         "yield_unit": "kg/ha", "input_rate_unit": "kg/ha", "area_unit": "ha",
-        "length_unit": "m", "speed_unit": "km/h", "crop": None,
+        "length_unit": "m", "speed_unit": "km/h", "liquid_unit": "L",
+        "distance_unit": "km", "crop": None,
     }
     GROUPS = {
         "yield_unit": "rate_mass", "input_rate_unit": "rate_mass",
         "area_unit": "area", "length_unit": "length", "speed_unit": "speed",
+        "liquid_unit": "liquid", "distance_unit": "distance",
     }
 
     def __init__(self, units: dict | None = None, crop: str | None = None) -> None:
@@ -504,6 +531,11 @@ class Phrase:
                     f"Use one of: {valid}."
                 )
         self.units = resolved
+        # The currency is a label, not a unit to convert: it names the symbol
+        # a price was typed in, and the report and the findings print it.
+        currency = str(given.get("currency") or UNIT_PRESETS[DEFAULT_PRESET]["currency"])
+        self.currency = currency
+        self.symbol = next((c["symbol"] for c in CURRENCIES if c["key"] == currency), currency)
 
     # -- labels ----------------------------------------------------------
     @property
@@ -541,6 +573,21 @@ class Phrase:
 
     def to_speed(self, kmh):
         return self._from(kmh, "speed", self.speed_unit)
+
+    @property
+    def liquid_unit(self) -> str:
+        return self.units["liquid_unit"]
+
+    @property
+    def distance_unit(self) -> str:
+        return self.units["distance_unit"]
+
+    def to_liquid(self, litres):
+        return self._from(litres, "liquid", self.liquid_unit)
+
+    def to_distance(self, metres):
+        return self._from(None if metres is None else float(metres) / 1000.0,
+                          "distance", self.distance_unit)
 
     def to_volume(self, cubic_metres):
         if cubic_metres is None:
@@ -584,6 +631,60 @@ class Phrase:
 
         digits = int(_math.floor(_math.log10(value)))
         return self._render(round(value, -(digits - 1)), self.volume_unit, 0)
+
+    def liquid(self, litres, decimals: int | None = None) -> str:
+        """Fuel or DEF: "146 L", "38.6 gal", "0.9 L"."""
+        value = self.to_liquid(litres)
+        return self._render(value, self.liquid_unit,
+                            self.decimals_for(value) if decimals is None else decimals)
+
+    def liquid_per_hour(self, litres_h, decimals: int = 1) -> str:
+        return self._render(self.to_liquid(litres_h), f"{self.liquid_unit}/h", decimals)
+
+    def liquid_per_area(self, litres_ha, decimals: int | None = None) -> str:
+        """Fuel over ground worked: L/ha, L/ac, gal/ac — the volume and the
+        area units the reader chose, so it reads as one quantity."""
+        if litres_ha is None:
+            return f"— {self.liquid_unit}/{self.area_unit}"
+        per_area = self.to_liquid(litres_ha) / self.to_area(1.0)
+        return self._render(per_area, f"{self.liquid_unit}/{self.area_unit}",
+                            self.decimals_for(per_area) if decimals is None else decimals)
+
+    def liquid_per_distance(self, litres_km, decimals: int | None = None) -> str:
+        if litres_km is None:
+            return f"— {self.liquid_unit}/{self.distance_unit}"
+        per = self.to_liquid(litres_km) / self.to_distance(1000.0)
+        return self._render(per, f"{self.liquid_unit}/{self.distance_unit}",
+                            self.decimals_for(per) if decimals is None else decimals)
+
+    def distance(self, metres, decimals: int | None = None) -> str:
+        """Kilometres or miles travelled, whole from a hundred up."""
+        value = self.to_distance(metres)
+        return self._render(value, self.distance_unit,
+                            self.decimals_for(value) if decimals is None else decimals)
+
+    def money(self, value, decimals: int | None = None) -> str:
+        """An amount in the reader's currency, as the printed report writes
+        it: "C$ 3 516", "R$ 12.40". Whole units from a hundred up."""
+        if value is None:
+            return f"{self.symbol} —"
+        if decimals is None:
+            decimals = 0 if abs(float(value)) >= 100 else 2
+        return f"{self.symbol} {self.number(value, decimals)}"
+
+    @staticmethod
+    def duration(seconds) -> str:
+        """A span of time in hours and minutes, the same in every unit set:
+        "6 h 38 min", "2 h", "24 min", "40 s"."""
+        if seconds is None:
+            return "—"
+        total = int(round(float(seconds)))
+        if total < 60:
+            return f"{total} s"
+        hours, minutes = divmod(round(total / 60), 60)
+        if not hours:
+            return f"{minutes} min"
+        return f"{hours} h {minutes} min" if minutes else f"{hours} h"
 
     def rate(self, kg_ha, operation: str | None = None, decimals: int | None = None) -> str:
         """The main variable — a yield, or an applied rate.

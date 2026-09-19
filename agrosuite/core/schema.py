@@ -71,6 +71,20 @@ LABELS = {
     APPLIED_RATE: "Applied rate",
     CROP: "Crop",
     TRIAL_ID: "Trial strip",
+    # Machine telemetry (SoMat), in the units the reader leaves them in.
+    "fuel_rate_lh": "Fuel rate (L/h)",
+    "fuel_l": "Fuel per sample (L)",
+    "fuel_counter_l": "Fuel used, counter (L)",
+    "distance_counter_m": "Distance, counter (m)",
+    "def_level_pct": "DEF level (%)",
+    "engine_rpm": "Engine speed (rpm)",
+    "engine_load_pct": "Engine load (%)",
+    "coolant_c": "Coolant temperature (°C)",
+    "battery_v": "Battery voltage (V)",
+    "logger_v": "Logger supply voltage (V)",
+    "engine_hours": "Engine hours",
+    "satellites": "GPS satellites",
+    "activity": "Machine activity",
 }
 
 

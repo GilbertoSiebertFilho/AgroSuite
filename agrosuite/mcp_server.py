@@ -312,6 +312,45 @@ def tool_analyse_terrain(dataset_id: str, cell_m: float | None = None,
     return _terrain_text(summary, units)
 
 
+def tool_analyse_machine(dataset_id: str, boundary_id: str = "", yield_id: str = "",
+                         boom_width_m: float | None = None, tyre_size: str = "",
+                         track_width_m: float | None = None, rear_follows_front: bool = True,
+                         def_tank_l: float | None = None, fuel_price: float | None = None,
+                         yield_kg_ha: float | None = None,
+                         loss_fraction: float | None = None) -> Any:
+    """A machine log's day: time, distance, diesel and DEF by activity, and
+    the crop the tyres crossed. Only what the caller set is sent."""
+    body: dict[str, Any] = {"dataset_id": dataset_id, "rear_follows_front": rear_follows_front}
+    for name, value in (("boundary_id", boundary_id), ("yield_id", yield_id),
+                        ("boom_width_m", boom_width_m), ("tyre_size", tyre_size),
+                        ("track_width_m", track_width_m), ("def_tank_l", def_tank_l),
+                        ("fuel_price", fuel_price), ("yield_kg_ha", yield_kg_ha),
+                        ("loss_fraction", loss_fraction)):
+        if value not in (None, ""):
+            body[name] = value
+    summary = APP.call("POST", "/api/machine/analyze", body)["summary"]
+    return _machine_text(summary)
+
+
+def _machine_text(summary: dict[str, Any]) -> str:
+    """The findings, already in the units on screen, then the split by activity
+    in metric — hours, kilometres, litres — for anyone who wants the numbers."""
+    lines = [f"Machine log '{summary.get('name', '')}':", ""]
+    lines += [f"- {f['text']}" for f in summary.get("findings", [])]
+    lines += ["", "By activity (metric):"]
+    for row in summary.get("activities", []):
+        km = (row.get("distance_m") or 0) / 1000
+        litres = row.get("fuel_l")
+        lines.append(f"- {row['label']}: {row['time_s'] / 3600:.2f} h, {km:.1f} km"
+                     + (f", {litres:.1f} L" if litres is not None else ""))
+    t = summary.get("trampling") or {}
+    if t.get("available"):
+        lines.append(f"- Crop crossed by the tyres: {t['area_ha']:.2f} ha"
+                     + (f" ({t['share_of_field'] * 100:.1f} % of the field)" if t.get("share_of_field") else "")
+                     + (f", {t['lost_kg']:.0f} kg lost" if t.get("lost_kg") is not None else ""))
+    return "\n".join(lines)
+
+
 def _terrain_text(summary: dict[str, Any], units: dict[str, Any] | None = None) -> str:
     """The terrain summary as the paragraphs a person would read out.
 
@@ -713,6 +752,45 @@ TOOLS: list[dict[str, Any]] = [
                                                         "its surroundings, in metres, to "
                                                         "be reported. Left out, twice the "
                                                         "measured GPS noise."},
+            },
+            "required": ["dataset_id"],
+        },
+    },
+    {
+        "name": "analyse_machine",
+        "description": (
+            "Read a machine's telemetry log (a SoMat .sie, opened with open_file) and "
+            "say where the day went: time, distance, diesel and DEF split between field "
+            "work, standing with the engine running and the road; diesel per hour, per "
+            "km and per hectare worked; engine load and speed; and — given the tyre "
+            "size and the track width — the crop area the tyres crossed inside the "
+            "field and, with a yield, the crop lost. Pass boundary_id (a loaded "
+            "boundary) to tell field from road; without one, speed decides. All "
+            "numbers in metric."
+        ),
+        "handler": tool_analyse_machine,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "dataset_id": {"type": "string", "description": "The telemetry log."},
+                "boundary_id": {"type": "string",
+                                "description": "A loaded field boundary: inside is field work."},
+                "yield_id": {"type": "string",
+                             "description": "A loaded yield map, averaged for the crop lost."},
+                "boom_width_m": {"type": "number", "description": "Boom width, metres."},
+                "tyre_size": {"type": "string",
+                              "description": "As on the sidewall (380/90R46) or '380 mm'."},
+                "track_width_m": {"type": "number",
+                                  "description": "Centre to centre of the wheels, metres."},
+                "rear_follows_front": {"type": "boolean",
+                                       "description": "Rear wheels in the front ones' tracks."},
+                "def_tank_l": {"type": "number", "description": "DEF tank capacity, litres."},
+                "fuel_price": {"type": "number", "description": "Diesel price per litre."},
+                "yield_kg_ha": {"type": "number",
+                                "description": "Yield under the tyres, kg/ha (else yield_id)."},
+                "loss_fraction": {"type": "number",
+                                  "description": "Share of the crop under a tyre lost, 0-1. "
+                                                 "Default 1: a late, pre-harvest pass."},
             },
             "required": ["dataset_id"],
         },
