@@ -16,11 +16,16 @@ the projects in a folder of your choosing.
 
 1. Install [Python 3.10 or newer](https://www.python.org/downloads/), ticking
    **Add Python to PATH** during installation.
-2. Download or clone this folder.
-3. Double-click **`run.bat`**.
+2. Download or clone this folder, and put it where it will stay.
+3. Double-click **`create_shortcut.bat`** once. It puts AgroSuite, with its
+   icon, in the Start menu and on the desktop; right-click it in the Start
+   menu to pin it to the taskbar. Moving the folder later breaks the
+   shortcut — run it again from the new place.
+4. Open AgroSuite from the shortcut, or double-click **`run.bat`**.
 
 The first run creates the environment and installs the dependencies (a few
-minutes). After that the app opens straight in your browser.
+minutes). After that the app opens straight in your browser. The black
+window that stays open is the app itself: closing it stops the app.
 
 On Linux or macOS, use `./run.sh`. On any system this also works:
 
