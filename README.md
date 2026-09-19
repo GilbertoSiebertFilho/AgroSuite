@@ -230,8 +230,9 @@ the panel says that too.
 The file is read the way it was written, not the way it looks. Missing
 readings are numbers (−1 L/h, 1000 °C, −500 V) and each channel declares its
 own, so they are set aside from what the file says rather than from a list.
-The distance counter of a New Holland 370F wraps at 100 000 ft — twice in an
-ordinary day, which read at face value turns 80 km into 30 — so the totals
+The distance counter wraps at the top of its declared range — 100 000 ft on
+a common setup, more than once in an ordinary day, which read at face value
+loses most of the distance — so the totals
 are rebuilt from the per-sample increments and checked against the counter,
 the fuel rate and the GPS. The logger's clock is set right from the GPS time
 in the same log.

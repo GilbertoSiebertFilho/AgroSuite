@@ -191,7 +191,7 @@ class Session:
             units_mod.UNIT_PRESETS[units_mod.DEFAULT_PRESET]
         )
         # Resolved once, here: Windows can hand TEMP over as an 8.3 short
-        # path (C:\Users\GSIEBE~1\...), while every path the app reports
+        # path (C:\Users\JSMITH~1\...), while every path the app reports
         # is resolved to the long form. Unresolved, the same folder would
         # compare unequal to itself.
         self.workdir = Path(tempfile.mkdtemp(prefix="agrosuite_")).resolve()
