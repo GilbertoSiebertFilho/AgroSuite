@@ -27,10 +27,9 @@ interpreter carries affine 2.4, where `Affine @ (col, row)` does not exist, and
 53 terrain/raster tests fail with a `TypeError` at `formats/raster.py:117` that
 looks like a defect in the project and is not. `run.bat` installs affine 3.
 
-The suite is also sensitive to `TEMP` holding an 8.3 short path such as
-`C:\Users\GSIEBE~1\AppData\Local\Temp`: three `test_persist.py` tests compare a
-session folder against a path that resolves to the long form. Gilberto's `TEMP`
-is the long form, so a shell that sets the short one has to override it.
+GitHub Actions runs the same suite on Windows and Ubuntu for every pull
+request and every push to `main` (`.github/workflows/tests.yml`). Work goes on
+a branch, through a pull request, and into `main` once the check is green.
 
 ## Layout
 
@@ -40,4 +39,6 @@ elevation grid, hydrology, contours · `difm/` response, economics, trial
 layout (the Economics tab) · `app/` local server and interface ·
 `mcp_server.py` the tool surface Claude drives.
 
-`.mcp.json` registers that MCP server for sessions opened in this folder.
+`.mcp.json` registers that MCP server for sessions opened in this folder,
+by a path relative to the project (`${CLAUDE_PROJECT_DIR:-.}`) in the
+Windows venv layout, `.venv\Scripts\python.exe`.
