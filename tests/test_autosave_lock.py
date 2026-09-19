@@ -150,18 +150,30 @@ def _claim_of(project: Path) -> dict:
     return json.loads(projectlock.lock_path(project).read_text(encoding="utf-8"))
 
 
-def _claimed(project: Path) -> bool:
-    """The claim is on disk and can be read.
+def _read_claim(project: Path) -> dict | None:
+    """The claim through the app's own reader, or ``None`` while there is none.
 
-    A first claim creates the lock file and then fills it, so for an
-    instant the file exists and is empty; waiting on its existence alone
-    lets a test read it in that instant.
+    A raw read can land while the claim is being written — empty for an
+    instant after a first claim, refused on Windows while a heartbeat
+    replaces the file — and a test would then fail for a reason that is not
+    the one it checks. The app's reader waits that instant out.
     """
-    try:
-        _claim_of(project)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return False
-    return True
+    raw = projectlock._read_claim(projectlock.lock_path(project))
+    return raw if isinstance(raw, dict) else None
+
+
+def _claimed(project: Path) -> bool:
+    return _read_claim(project) is not None
+
+
+def _wait_claim(project: Path, timeout: float = 8.0) -> dict | None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        claim = _read_claim(project)
+        if claim is not None:
+            return claim
+        time.sleep(0.05)
+    return None
 
 
 def _until(predicate, timeout: float = 8.0) -> bool:
@@ -476,6 +488,45 @@ def test_a_damaged_claim_stops_nothing(projects, state, quick):
         assert _claim_of(theirs)["pid"] == os.getpid(), "the damaged claim was not replaced"
 
 
+def test_a_claim_caught_mid_write_is_still_a_claim(projects, other_window, monkeypatch):
+    """On Windows a reader that arrives while a heartbeat replaces the lock is
+    refused access, and a first claim is empty until it is filled. Both last
+    milliseconds. Read once, either passes for a damaged file, which counts
+    as nobody — and the window beside would take a project that is held."""
+    project = projects / "Held.agrosuite"
+    settings_mod.ensure(projects)
+    _claimed_by(project, other_window.pid)
+    lock = projectlock.lock_path(project)
+    real = Path.read_text
+
+    for mid_write in (PermissionError(13, "Permission denied"), ""):
+        pending = [mid_write]
+
+        def read_text(self, *args, **kwargs):
+            if self == lock and pending:
+                caught = pending.pop()
+                if isinstance(caught, BaseException):
+                    raise caught
+                return caught
+            return real(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "read_text", read_text)
+        holder = projectlock.holder_of(project)
+        assert holder is not None, f"read as nobody after {mid_write!r}"
+        assert holder.live and holder.pid == other_window.pid
+
+
+def test_a_claim_that_never_reads_is_nobody_and_quickly(projects):
+    """Waiting out a claim being written is not a reason to stall on a file
+    that is simply broken: it still counts as nobody, within a blink."""
+    project = projects / "Broken.agrosuite"
+    settings_mod.ensure(projects)
+    projectlock.lock_path(project).write_text("", encoding="utf-8")
+    started = time.monotonic()
+    assert projectlock.holder_of(project) is None
+    assert time.monotonic() - started < 0.5
+
+
 def test_a_claim_from_a_stranger_is_ignored(projects, state):
     """JSON that is not this app's claim is not this app's business, and
     not a reason to refuse a project either."""
@@ -520,12 +571,13 @@ def test_the_heartbeat_is_refreshed_while_the_app_runs(projects, state, quick, m
     with TestClient(server_mod.app) as client:
         client.post("/api/import/demo", json={"kind": "harvest"})
         target = projects / "Untitled project.agrosuite"
-        assert _until(lambda: _claimed(target))
-        first = _claim_of(target)["heartbeat"]
+        claim = _wait_claim(target)
+        assert claim is not None
+        first = claim["heartbeat"]
 
         # The stamps are whole seconds, like every other time the app writes.
-        assert _until(lambda: _claim_of(target)["heartbeat"] != first, timeout=6.0), \
-            "the claim went stale under a running app"
+        assert _until(lambda: (_read_claim(target) or claim)["heartbeat"] != first,
+                      timeout=6.0), "the claim went stale under a running app"
         assert projectlock.holder_of(target).age < projectlock.STALE_AFTER
 
 

@@ -91,6 +91,13 @@ HEARTBEAT_SECONDS = 5.0
 #: than a support call.
 STALE_AFTER = 60.0
 
+#: How often, and how far apart, a lock file that cannot be read is read
+#: again before it counts as damaged. A claim being written is unreadable
+#: for milliseconds (see :func:`_read_claim`); a damaged file stays damaged.
+#: The retries cost 80 ms at most, and only on a file that fails every read.
+READ_ATTEMPTS = 5
+READ_RETRY_SECONDS = 0.02
+
 
 class Busy(Exception):
     """Raised when the project is claimed by another running app.
@@ -272,6 +279,31 @@ def _parse_time(value: Any) -> datetime | None:
         return None
 
 
+def _read_claim(path: Path) -> Any:
+    """What the lock file at ``path`` holds, or ``None`` if it holds nothing.
+
+    A claim being written cannot be read for an instant, twice over: a first
+    claim creates the file before it fills it, so it is briefly empty; and on
+    Windows a reader that arrives while a heartbeat replaces the file is
+    refused access. Read once, either looks like a damaged file, and a
+    damaged file counts as nobody — so another window would take a project
+    that is held, and :meth:`Lock.release` would remove a claim that is not
+    its own. Both states pass in milliseconds and damage does not, so a
+    failed read is tried again before it is believed. A missing file is
+    believed at once: nobody is writing it.
+    """
+    for attempt in range(READ_ATTEMPTS):
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return None
+        except (OSError, ValueError):
+            if attempt == READ_ATTEMPTS - 1:
+                return None
+            time.sleep(READ_RETRY_SECONDS)
+    return None
+
+
 def holder_of(project: Path | str) -> Holder | None:
     """Who claims ``project``, live or stale, or ``None`` if nobody does.
 
@@ -281,11 +313,7 @@ def holder_of(project: Path | str) -> Holder | None:
     next claim rather than left to puzzle over.
     """
     project = Path(project)
-    path = lock_path(project)
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
+    raw = _read_claim(lock_path(project))
     if not isinstance(raw, dict) or raw.get("app") != APP_MARKER:
         return None
 
