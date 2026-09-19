@@ -627,6 +627,7 @@ ROLES = {
     "guidance": "Guidance lines",
     "soil": "Soil sampling",
     "terrain": "Elevation / terrain",
+    "telemetry": "Machine telemetry",
     "other": "Other",
 }
 
@@ -641,6 +642,7 @@ ROLE_BY_OPERATION = {
     "vigor": "vigor",
     "soil": "soil",
     "elevation": "terrain",
+    "telemetry": "telemetry",
     "unknown": "other",
 }
 
@@ -717,6 +719,13 @@ def suggest_next_step(ds, findings: list[Finding], role: str) -> dict[str, Any]:
             "label": "Analyse the relief",
             "why": "An elevation layer answers one question — what the relief of the "
                    "field is — and the terrain analyser is what answers it.",
+        }
+    if role == "telemetry":
+        return {
+            "step": "machine",
+            "label": "See the machine's day",
+            "why": "A telemetry log says where the time, the fuel and the DEF went, "
+                   "and where the tyres crossed the crop — the Machine tab reads it.",
         }
     if role == "vigor":
         return {

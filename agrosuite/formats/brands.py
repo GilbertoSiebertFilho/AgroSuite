@@ -202,6 +202,15 @@ BRANDS: tuple[BrandProfile, ...] = (
         notes="The ISO 11783-10 standard, accepted by most ISOBUS terminals.",
     ),
     BrandProfile(
+        key="somat",
+        label="HBM SoMat eDAQ (machine telemetry)",
+        path_markers=("somat", "edaq"),
+        extensions=(".sie",),
+        default_units={"speed": "mph"},
+        notes="A data logger on the machine: engine CAN bus and its own GPS, "
+              "in SIE 1.0 files. Read, not written.",
+    ),
+    BrandProfile(
         key="generic",
         label="Generic / not identified",
         export_formats=("shapefile_rx", "csv", "geojson", "isoxml"),

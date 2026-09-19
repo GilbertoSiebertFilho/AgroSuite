@@ -20,6 +20,7 @@ from . import isoxml as isoxml_mod
 from . import johndeere as jd_mod
 from . import raster as raster_mod
 from . import readers
+from . import somat as somat_mod
 
 #: Extensions accepted on import, grouped by family.
 VECTOR_EXT = {".shp", ".gpkg", ".geojson", ".json", ".kml", ".kmz", ".gml"}
@@ -29,6 +30,9 @@ ARCHIVE_EXT = {".zip"}
 #: Elevation rasters (DEM). The only raster the app reads: a GeoTIFF is what
 #: every elevation source exports and what QGIS exchanges.
 RASTER_EXT = {".tif", ".tiff"}
+
+#: Machine telemetry logs (HBM SoMat eDAQ, SIE 1.0).
+TELEMETRY_EXT = {".sie"}
 
 #: Extensions that make up a shapefile, used when extracting from a ZIP.
 SHAPEFILE_SIDECARS = {".shp", ".shx", ".dbf", ".prj", ".cpg", ".sbn", ".sbx", ".qix"}
@@ -46,7 +50,7 @@ PROJECT_EXT = {".agrosuite"}
 
 ALL_IMPORT_EXT = (
     VECTOR_EXT | TABULAR_EXT | EXCEL_EXT | ARCHIVE_EXT | RASTER_EXT
-    | QGIS_EXT | PROJECT_EXT
+    | TELEMETRY_EXT | QGIS_EXT | PROJECT_EXT
     | {".xml", ".iso"}
 )
 
@@ -123,6 +127,13 @@ def detect(path: str | Path) -> DetectedSource:
         return DetectedSource("excel", path, "Excel workbook")
     if suffix in RASTER_EXT:
         return DetectedSource("raster", path, "Elevation raster (GeoTIFF)")
+    if suffix in TELEMETRY_EXT:
+        if not somat_mod.is_sie(path):
+            raise ValueError(
+                f"'{path.name}' has the .sie extension of a SoMat log but does not start "
+                "like one. Copy it off the logger again."
+            )
+        return DetectedSource("somat", path, "SoMat telemetry log (SIE)")
     if suffix in (".xml", ".iso"):
         if path.name.upper() == "TASKDATA.XML":
             return DetectedSource("isoxml", path, "TASKDATA.XML (ISOXML)")
@@ -208,6 +219,7 @@ def _dispatch(source: DetectedSource, brand_hint: str | None) -> Dataset:
         "isoxml": isoxml_mod.read_isoxml,
         "jd_card": read_jd_card,
         "raster": raster_mod.read_raster,
+        "somat": somat_mod.read_somat,
     }
     reader = readers_by_kind.get(source.kind)
     if reader is None:
