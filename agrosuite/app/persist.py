@@ -28,6 +28,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import time
 import re
 import tempfile
 import zipfile
@@ -370,6 +371,34 @@ def _json_default(value: Any) -> Any:
     return str(value)
 
 
+#: How often, and how far apart, a move refused by Windows is tried again
+#: before the refusal is believed. See :func:`_replace`.
+REPLACE_ATTEMPTS = 5
+REPLACE_RETRY_SECONDS = 0.05
+
+
+def _replace(source: str | Path, target: Path) -> None:
+    """``os.replace``, waiting out a file that is open for a moment.
+
+    Windows will not replace a file while anything holds it open, and Python
+    opens files that way: the auto-save reading the settings, a second window
+    reading a claim, an antivirus scan or the search indexer looking at the
+    project just written. Each lets go within milliseconds, and until it does
+    the move fails with ``PermissionError``. Refused only for that long, a
+    save would fail for nothing, so the refusal is tried again for a quarter
+    of a second before it is believed. Elsewhere ``PermissionError`` means
+    what it says and costs the same quarter second before it is raised.
+    """
+    for attempt in range(REPLACE_ATTEMPTS):
+        try:
+            os.replace(source, target)
+            return
+        except PermissionError:
+            if attempt == REPLACE_ATTEMPTS - 1:
+                raise
+            time.sleep(REPLACE_RETRY_SECONDS)
+
+
 def write_atomically(target: Path, payload: bytes) -> None:
     """Write to a sibling temporary file and move it over the target.
 
@@ -382,7 +411,7 @@ def write_atomically(target: Path, payload: bytes) -> None:
     try:
         with os.fdopen(handle, "wb") as out:
             out.write(payload)
-        os.replace(temp_name, target)
+        _replace(temp_name, target)
     except BaseException:
         Path(temp_name).unlink(missing_ok=True)
         raise

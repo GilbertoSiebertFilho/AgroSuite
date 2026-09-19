@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -93,6 +94,31 @@ def default_projects_dir() -> Path:
     return (documents if documents.is_dir() else home) / FOLDER_NAME
 
 
+#: How often, and how far apart, a settings file that cannot be read is
+#: read again before the defaults take over. See :func:`_load`.
+READ_ATTEMPTS = 5
+READ_RETRY_SECONDS = 0.02
+
+
+def _load(path: Path) -> Any:
+    """The settings file's contents, read again if the first read fails.
+
+    On Windows a read that lands while :func:`write` moves the new file into
+    place is refused access for a moment. Believed at once, that refusal
+    would put the defaults in force — auto-save on, projects in the default
+    folder — in the one instant somebody turned auto-save off or chose a
+    folder, and the writer could save where it was just told not to. A
+    change being written passes in milliseconds and a damaged file does not.
+    """
+    for attempt in range(READ_ATTEMPTS):
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            if attempt == READ_ATTEMPTS - 1:
+                raise
+            time.sleep(READ_RETRY_SECONDS)
+
+
 def read() -> Settings:
     """The settings in force. Never raises: the app has to open."""
     path = settings_path()
@@ -100,7 +126,7 @@ def read() -> Settings:
         return Settings(default_projects_dir(), True)
 
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw = _load(path)
         if not isinstance(raw, dict):
             raise ValueError("it does not hold a settings object")
     except (OSError, ValueError) as exc:
