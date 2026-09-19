@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import os
 import sys
 import zipfile
 from pathlib import Path
@@ -235,6 +236,43 @@ def test_damaged_files_are_refused_before_touching_the_session(tmp_path):
 
     assert [item["id"] for item in state.list()] == [kept.id]
     assert state.project["name"] == "Still here"
+
+
+def test_a_file_held_open_for_a_moment_is_still_saved(tmp_path, monkeypatch):
+    """Windows refuses to replace a file anything holds open — the
+    auto-save reading it, an antivirus scan, the search indexer — until it
+    lets go, milliseconds later. A save must not fail for that."""
+    target = tmp_path / "field.agrosuite"
+    target.write_bytes(b"before")
+    real = os.replace
+    refused = [PermissionError(13, "Access is denied")] * 2
+
+    def replace(source, destination):
+        if refused:
+            raise refused.pop()
+        return real(source, destination)
+
+    monkeypatch.setattr(os, "replace", replace)
+    persist.write_atomically(target, b"after")
+    assert target.read_bytes() == b"after"
+    assert not list(tmp_path.glob("*.partial"))
+
+
+def test_a_file_held_open_for_good_still_fails_cleanly(tmp_path, monkeypatch):
+    """Waiting out a moment is not waiting forever: a file that stays
+    locked fails the save, leaves the previous file as it was and leaves
+    no half-written copy beside it."""
+    target = tmp_path / "field.agrosuite"
+    target.write_bytes(b"before")
+
+    def replace(source, destination):
+        raise PermissionError(13, "Access is denied")
+
+    monkeypatch.setattr(os, "replace", replace)
+    with pytest.raises(PermissionError):
+        persist.write_atomically(target, b"after")
+    assert target.read_bytes() == b"before"
+    assert not list(tmp_path.glob("*.partial"))
 
 
 def test_reused_ids_are_refused():

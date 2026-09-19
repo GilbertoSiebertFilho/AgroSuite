@@ -579,6 +579,28 @@ def test_settings_keep_what_this_version_does_not_know(projects):
     assert json.loads(path.read_text(encoding="utf-8"))["something_from_later"] == {"keep": "me"}
 
 
+def test_a_setting_being_changed_is_not_read_as_the_defaults(projects, monkeypatch):
+    """On Windows a read that lands while a change is moved into place is
+    refused for a moment. Taken as a broken file, it would put the defaults
+    in force — auto-save on, the default folder — in the very instant
+    somebody turned auto-save off, and the writer could save anyway."""
+    settings_mod.write(autosave=False)
+    path = settings_mod.settings_path()
+    real = Path.read_text
+    refused = [PermissionError(13, "Access is denied")]
+
+    def read_text(self, *args, **kwargs):
+        if self == path and refused:
+            raise refused.pop()
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+    config = settings_mod.read()
+    assert config.autosave is False, "read as the defaults while it was being written"
+    assert config.projects_dir == projects
+    assert config.warning is None
+
+
 def test_the_writer_stays_out_of_a_process_that_only_imported_the_app(monkeypatch):
     """A test, a script or the MCP tools must not start a thread that writes
     to somebody's Documents folder."""
